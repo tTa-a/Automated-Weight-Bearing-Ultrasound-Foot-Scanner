@@ -1,0 +1,19 @@
+function pos = motorpos(motorID)
+    if evalin('base', 'exist("MOTOR_SERIAL", "var")') == 0
+        error('Motor not connected. Define MOTOR_SERIAL in the base workspace first.');
+    end
+
+    serialObj = evalin('base', 'MOTOR_SERIAL');
+
+    cmd = sprintf("P %d", motorID);
+    writeline(serialObj, cmd);
+
+    resp = readline(serialObj);
+    parts = split(resp);
+
+    if numel(parts) ~= 3
+        error("Unexpected position response: %s", resp);
+    end
+
+    pos = str2double(parts{3});
+end
