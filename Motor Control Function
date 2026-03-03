@@ -1,0 +1,16 @@
+function motormove(motorID, mm)
+    % Get the serial object from the base workspace
+    if evalin('base', 'exist("MOTOR_SERIAL", "var")') == 0
+        error('Motor not connected. Define MOTOR_SERIAL in the base workspace first.');
+    end
+
+    serialObj = evalin('base', 'MOTOR_SERIAL');
+
+    cmd = sprintf("G %d %f", motorID, mm);
+    writeline(serialObj, cmd);
+
+    resp = readline(serialObj);
+    if ~contains(resp, "DONE")
+        warning("Unexpected response: %s", resp);
+    end
+end
