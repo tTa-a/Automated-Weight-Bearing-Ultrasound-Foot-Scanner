@@ -1,0 +1,712 @@
+% Notice:
+%   This file is provided by Verasonics to end users as a programming
+%   example for the Verasonics Vantage Research Ultrasound System.
+%   Verasonics makes no claims as to the functionality or intended
+%   application of this program and the user assumes all responsibility
+%   for its use.
+%
+% File name SetUpL11_4vWideBeam.m: example of linear array wide beam
+% transmit
+% Generate .mat Sequence Object file for L11_4v Linear array wide beam transmit.
+% The transmit aperture size can be set by the variable - numTx. The transmit aperture is
+%   translated across the array with the number of rays set by the variable - numRays.
+% The receive aperture always covers the full 128 element aperture.
+%
+% Testing: Tested with software release 3.0.1 on Vantage 128.
+%
+% Last update:
+%   11-25-2015 Having correct format for SW 3.0
+
+clear all
+VsClose();
+
+fname = 'Right_Foot_Justin';
+savepath     = 'c:\CAP26\data\';
+
+% scanActive   = 1;
+useMotorFlag = 0;
+saveIQFlag   = 1;
+
+if useMotorFlag
+    MOTOR_SERIAL = serialport("COM4",115200);
+    configureTerminator(MOTOR_SERIAL, "LF");
+    pause(0.5);
+    flush(MOTOR_SERIAL);
+    disp("Motor connected.");
+end
+
+scanDisMM  = 50; % mm
+stepMM     = 0.5; % mm
+nSteps     = floor(scanDisMM/stepMM) + 1;
+scanIdx    = 1; % Initialize Scan Step #--will change during scan
+
+autoStartVSX  = 1; %Flag to autorun VSX
+
+P.numTx      = 32;   % no. of elements in TX aperture.
+P.numRays    = 48; % no. of rays in frame
+P.startDepth = 5;
+P.endDepth   = 192;
+
+% Specify factor for converting sequenceRate to frameRate.
+frameRateFactor = 1;
+
+% Define system parameters.
+Resource.Parameters.numTransmit    = 128;  % number of transmit channels.
+Resource.Parameters.numRcvChannels = 128;  % number of receive channels.
+Resource.Parameters.speedOfSound   = 1540;  % speed of sound in m/s
+Resource.Parameters.verbose        = 2;
+Resource.Parameters.initializeOnly = 0;
+Resource.Parameters.simulateMode   = 0;
+%  Resource.Parameters.simulateMode = 1 forces simulate mode, even if hardware is present.
+%  Resource.Parameters.simulateMode = 2 stops sequence and processes RcvData continuously.
+
+% Specify Trans structure array.
+Trans.name = 'L11-4v';
+Trans.units = 'mm';
+Trans = computeTrans(Trans);
+
+% check if license activated
+a = getenv('VERASONICS_IS_ACTIVATED');
+if a~='1'
+    warn('Activate Verasonics First!');
+end
+
+% Timestamp and Saving File / Path
+dateStamp = datevec(datetime); % Year, Month, Day, Hour, Minute, Second
+deteStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(2), dateStamp(3), dateStamp(1)-2000); % mm dd yy
+timeStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(4), dateStamp(5), round(dateStamp(6))); % hr min sec
+
+savepath2    = [sprintf('%s%s',savepath, deteStr) '\'];
+fname2       = sprintf('%s-%s_%s',fname, deteStr, timeStr);
+savepath2     = [savepath2 fname2 '\']; % Make internal directory
+saveFileRoot2 = [savepath2 fname2];
+% frIdx        = 1; % Start index Numbering here for save file
+
+% Specify PData structure arrays.
+PData(1).PDelta = [Trans.spacing/2, 0, 0.5];
+PData(1).Size(1,1) = ceil((P.endDepth-P.startDepth)/PData(1).PDelta(3)); % range, origin and pdelta set PData(1).Size.
+PData(1).Size(1,2) = ceil((Trans.numelements*Trans.spacing)/PData(1).PDelta(1));
+PData(1).Size(1,3) = 1;      % single image page
+PData(1).Origin = [-Trans.spacing*(Trans.numelements-1)/2,0,P.startDepth]; % x,y,z of uppr lft crnr.
+% Define P.numRays rectangular regions centered on TX beam origins.
+PData(1).Region = repmat(struct('Shape',struct('Name','Rectangle',...
+                                               'Position',[0,0,P.startDepth],...
+                                               'width',Trans.spacing*(P.numTx-12),...
+                                               'height',P.endDepth-P.startDepth)),1,P.numRays);
+TxOrgX = (-63.5*Trans.spacing):(127*Trans.spacing/(P.numRays-1)):(63.5*Trans.spacing);
+for n = 1:P.numRays, PData(1).Region(n).Shape.Position(1) = TxOrgX(n); end
+PData(1).Region = computeRegions(PData(1));
+
+% Specify Media object.
+pt1;
+Media.attenuation = -0.5;
+Media.function = 'movePoints';
+
+% Specify Resources.
+Resource.RcvBuffer(1).datatype = 'int16';
+Resource.RcvBuffer(1).rowsPerFrame = P.numRays*4096;
+Resource.RcvBuffer(1).colsPerFrame = Resource.Parameters.numRcvChannels;
+Resource.RcvBuffer(1).numFrames = 1;    % 30 frames stored in RcvBuffer.
+Resource.InterBuffer(1).numFrames = 1;   % one intermediate buffer needed.
+Resource.ImageBuffer(1).numFrames = 10;
+Resource.DisplayWindow(1).Title = 'L11-4vWideBeam';
+Resource.DisplayWindow(1).pdelta = 0.35;
+ScrnSize = get(0,'ScreenSize');
+DwWidth = ceil(PData(1).Size(2)*PData(1).PDelta(1)/Resource.DisplayWindow(1).pdelta);
+DwHeight = ceil(PData(1).Size(1)*PData(1).PDelta(3)/Resource.DisplayWindow(1).pdelta);
+Resource.DisplayWindow(1).Position = [250,(ScrnSize(4)-(DwHeight+150))/2, ...  % lower left corner position
+                                      DwWidth, DwHeight];
+Resource.DisplayWindow(1).ReferencePt = [PData(1).Origin(1),0,PData(1).Origin(3)];   % 2D imaging is in the X,Z plane
+Resource.DisplayWindow(1).Type = 'Verasonics';
+Resource.DisplayWindow(1).numFrames = 20;
+Resource.DisplayWindow(1).AxesUnits = 'mm';
+Resource.DisplayWindow(1).Colormap = gray(256);
+
+% Specify Transmit waveform structure.
+TW(1).type = 'parametric';
+TW(1).Parameters = [Trans.frequency,0.67,1,1];
+
+scaleToWvl = 1;
+if strcmp(Trans.units, 'mm')
+    scaleToWvl = Trans.frequency/(Resource.Parameters.speedOfSound/1000);
+end
+
+% Specify TX structure array.
+TX = repmat(struct('waveform', 1, ...
+                   'Origin', [0.0,0.0,0.0], ...
+                   'Apod', zeros(1,Resource.Parameters.numTransmit), ...
+                   'focus', 3*P.endDepth, ...
+                   'Steer', [0.0,0.0], ...
+                   'Delay', zeros(1,Resource.Parameters.numTransmit), ...
+                   'TXPD', [], ...
+                   'peakCutOff', 1.0, ...
+                   'peakBLMax', 4.0), 1, P.numRays);
+
+% - Set event specific TX attributes.
+for n = 1:P.numRays
+    TX(n).Origin(1) = TxOrgX(n);
+    % Compute transmit aperture apodization
+    TX(n).Apod = +(((scaleToWvl*Trans.ElementPos(:,1))>(TxOrgX(n)-Trans.spacing*P.numTx/2))& ...
+                 ((scaleToWvl*Trans.ElementPos(:,1))<(TxOrgX(n)+Trans.spacing*P.numTx/2)))';
+    [RIndices,CIndices,V] = find(TX(n).Apod);
+    V = kaiser(size(V,2),1);
+    TX(n).Apod(CIndices) = V;
+    % Compute transmit delays
+    TX(n).Delay = computeTXDelays(TX(n));
+    % Compute transmit pixel data
+    TX(n).TXPD = computeTXPD(TX(n),PData(1));
+end
+
+% Specify Receive structure arrays.
+maxAcqLength = ceil(sqrt(P.endDepth^2 + ((Trans.numelements-1)*Trans.spacing)^2));
+Receive = repmat(struct('Apod', ones(1,Trans.numelements), ...
+                        'startDepth', P.startDepth, ...
+                        'endDepth', maxAcqLength, ...
+                        'TGC', 1, ...
+                        'bufnum', 1, ...
+                        'framenum', 1, ...
+                        'acqNum', 1, ...
+                        'sampleMode', 'NS200BW', ...
+                        'mode', 0, ...
+                        'callMediaFunc', 0), 1, P.numRays*Resource.RcvBuffer(1).numFrames);
+% - Set event specific Receive attributes for each frame.
+for i = 1:Resource.RcvBuffer(1).numFrames
+    Receive(P.numRays*(i-1)+1).callMediaFunc = 1;
+    for j = 1:P.numRays
+        Receive(P.numRays*(i-1)+j).framenum = i;
+        Receive(P.numRays*(i-1)+j).acqNum = j;
+    end
+end
+
+% Specify TGC Waveform structure.
+TGC.CntrlPts = [51,245,410,475,549,659,736,791];
+TGC.rangeMax = P.endDepth;
+TGC.Waveform = computeTGCWaveform(TGC);
+
+% Specify Recon structure arrays.
+% - We need one Recon structure which will be used for each frame.
+Recon = struct('senscutoff', 0.6, ...
+               'pdatanum', 1, ...
+               'rcvBufFrame',-1, ...
+               'IntBufDest', [1,1], ...
+               'ImgBufDest', [1,-1], ...
+               'RINums',(1:P.numRays));
+
+% Define ReconInfo structures.
+ReconInfo = repmat(struct('mode', 'accumIQ', ...  % default is to accumulate IQ data.
+                   'Pre',[],...
+                   'Post',[],...
+                   'txnum', 1, ...
+                   'rcvnum', 1, ...
+                   'scaleFactor', 0.2, ...
+                   'regionnum', 0, ...
+                   'threadSync', 1), 1, P.numRays);
+% - Set specific ReconInfo attributes.
+ReconInfo(1).Pre = 'clearInterBuf';
+for j = 1:P.numRays
+    ReconInfo(j).txnum = j;
+    ReconInfo(j).rcvnum = j;
+    ReconInfo(j).regionnum = j;
+end
+ReconInfo(P.numRays).Post = 'IQ2IntensityImageBuf';
+
+% Specify Process structure array.
+pers = 2;
+Process(1).classname = 'Image';
+Process(1).method = 'imageDisplay';
+Process(1).Parameters = {'imgbufnum',1,...   % number of buffer to process.
+                         'framenum',-1,...   % (-1 => lastFrame)
+                         'pdatanum',1,...    % number of PData structure to use
+                         'pgain',1.0,...            % pgain is image processing gain
+                         'reject',2,...      % reject level
+                         'persistMethod','simple',...
+                         'persistLevel',pers,...
+                         'interpMethod','4pt',...
+                         'grainRemoval','none',...
+                         'processMethod','none',...
+                         'averageMethod','none',...
+                         'compressMethod','power',...
+                         'compressFactor',40,...
+                         'mappingMethod','full',...
+                         'display',1,...      % display image after processing
+                         'displayWindow',1};
+% EF2 is external function for shearwave visualization
+Process(2).classname = 'External';
+Process(2).method = 'movemotor';
+Process(2).Parameters = {'srcbuffer','none'};
+
+% EF3 is external function for shearwave visualization
+Process(3).classname = 'External';
+Process(3).method = 'saveIQ';
+Process(3).Parameters = {'srcbuffer','inter',... % name of buffer to process.
+    'srcbufnum',1,...
+    'srcframenum',1,...
+    'dstbuffer','none'};
+
+% Specify SeqControl structure arrays.
+%  - Jump back to Flash start.
+SeqControl(1).command = 'jump';
+SeqControl(1).argument = 1;%10252;
+SeqControl(2).command = 'timeToNextAcq';  % time between synthetic aperture acquisitions
+SeqControl(2).argument = 220;  % 220 usec
+SeqControl(3).command = 'timeToNextAcq';  % time between synthetic aperture acquisitions
+SeqControl(3).argument = 30000;  % 30000 usec = 30msec time between frames
+SeqControl(4).command = 'returnToMatlab';
+%  - Jump back to scan start.
+SeqControl(5).command = 'jump';
+SeqControl(5).argument = 1;
+
+% nsc = 5; % nsc is count of SeqControl objects
+
+nsc = length(SeqControl)+1;
+
+% Specify Event structure arrays.
+% n = 1;
+% nStartFlashOnly = n;
+% for i = 1:Resource.RcvBuffer(1).numFrames
+%     for j = 1:P.numRays        % Acquire frame
+%         Event(n).info = '1st half of aperture.';
+%         Event(n).tx = j;
+%         Event(n).rcv = P.numRays*(i-1)+j;
+%         Event(n).recon = 0;
+%         Event(n).process = 0;
+%         Event(n).seqControl = 2;
+%         n = n+1;
+%     end
+%     Event(n-1).seqControl = [3,nsc]; % modify last acquisition Event's seqControl
+%       SeqControl(nsc).command = 'transferToHost'; % transfer frame to host buffer
+%     nsc = nsc+1;  
+% 
+%     Event(n).info = 'recon and process';
+%     Event(n).tx = 0;
+%     Event(n).rcv = 0;
+%     Event(n).recon = 1;
+%     Event(n).process = 1;
+%     Event(n).seqControl = 0;
+%     if floor(i/frameRateFactor) == i/frameRateFactor     % Exit to Matlab every 3rd frame reconstructed
+%         Event(n).seqControl = 4;
+%     end
+%     n = n+1;
+% end
+% Event(n).info = 'Jump back';
+% Event(n).tx = 0;
+% Event(n).rcv = 0;
+% Event(n).recon = 0;
+% Event(n).process = 0;
+% Event(n).seqControl = 1;%nsc;
+% % SeqControl(nsc).command = 'jump';
+% % SeqControl(nsc).argument = nStartFlashOnly;
+% 
+% n = n+1;
+n = 1;
+nStartFlashOnly = n;
+for i = 1:Resource.RcvBuffer(1).numFrames
+    for j = 1:P.numRays        % Acquire frame
+        Event(n).info = 'Flash Frame';
+        Event(n).tx = j;
+        Event(n).rcv = P.numRays*(i-1)+j;
+        Event(n).recon = 0;
+        Event(n).process = 0;
+        Event(n).seqControl = 2;
+        n = n+1;
+    end
+    Event(n-1).seqControl = [3,nsc]; % modify last acquisition Event's seqControl
+    SeqControl(nsc).command = 'transferToHost'; % transfer frame to host buffer
+    
+    Event(n).info = 'recon and process';
+    Event(n).tx = 0;
+    Event(n).rcv = 0;
+    Event(n).recon = 1;
+    Event(n).process = 1;
+    Event(n).seqControl = 0;
+    if floor(i/frameRateFactor) == i/frameRateFactor     % Exit to Matlab every 1 frame reconstructed
+        Event(n).seqControl = 4;
+    end
+    n = n+1;
+end
+nsc = nsc +1;
+%% Jump Back to Collect Next Scan Position
+Event(n).info       = 'Jump Back Flash';
+Event(n).tx         = 0;
+Event(n).rcv        = 0;
+Event(n).recon      = 0;
+Event(n).process    = 0;
+Event(n).seqControl = nsc;
+SeqControl(nsc).command = 'jump';
+SeqControl(nsc).argument = nStartFlashOnly;
+
+n = n+1;
+nStartScan = n;
+nsc = nsc + 1;
+for motStep = 1:nSteps
+    for i = 1:Resource.RcvBuffer(1).numFrames
+        for j = 1:P.numRays        % Acquire frame
+            Event(n).info = 'Flash Frame';
+            Event(n).tx = j;
+            Event(n).rcv = P.numRays*(i-1)+j;
+            Event(n).recon = 0;
+            Event(n).process = 0;
+            Event(n).seqControl = 2;
+            n = n+1;
+        end
+        Event(n-1).seqControl = [3,nsc]; % modify last acquisition Event's seqControl
+        SeqControl(nsc).command = 'transferToHost'; % transfer frame to host buffer
+        
+        Event(n).info = 'recon and process';
+        Event(n).tx = 0;
+        Event(n).rcv = 0;
+        Event(n).recon = 1;
+        Event(n).process = 1;
+        Event(n).seqControl = 0;
+        if floor(i/frameRateFactor) == i/frameRateFactor     % Exit to Matlab every 1 frame reconstructed
+            Event(n).seqControl = 4;
+        end
+        n = n+1;
+    end
+
+    if motStep>1 % Collect data on first position without moving motor
+        %% Move Motor
+        Event(n).info = 'Move Motor';
+        Event(n).tx = 0;
+        Event(n).rcv = 0;
+        Event(n).recon = 0;
+        Event(n).process = 2; % Call Move Motor Function movemotor
+        Event(n).seqControl = 0;
+        n = n+1;
+    end
+
+    Event(n).info    = 'Save IQ';
+    Event(n).tx      = 0;
+    Event(n).rcv     = 0;
+    Event(n).recon   = 0;
+    Event(n).process = 3;
+    Event(n).seqControl = 0;
+    n = n+1;
+end
+nsc = nsc + 1;
+%% Jump Back to Collect Next Scan Position
+Event(n).info       = 'Jump Back Flash';
+Event(n).tx         = 0;
+Event(n).rcv        = 0;
+Event(n).recon      = 0;
+Event(n).process    = 0;
+Event(n).seqControl = nsc;
+SeqControl(nsc).command = 'jump';
+SeqControl(nsc).argument = nStartFlashOnly;
+
+%% User specified UI Control Elements
+import vsv.seq.uicontrol.VsSliderControl; 
+import vsv.seq.uicontrol.VsButtonControl
+
+% Define UIPos, which contains the default GUI positions - three columns of 10 controls. The x,y
+%    locations increment up columns, with each column being a separate page. The origin
+%    specified by UIPos is the lower left corner of a virtual box that encloses the control.
+UIPos = zeros(10,2,3);
+UIPos(:,1,1) = 0.0625;
+UIPos(:,1,2) = 0.375;
+UIPos(:,1,3) = 0.6875;
+UIPos(:,2,1) = 0.0:0.1:0.9;
+UIPos(:,2,2) = 0.0:0.1:0.9;
+UIPos(:,2,3) = 0.0:0.1:0.9;
+
+% Define slider group offsets and sizes. All units are normalized.
+SG = struct('TO',[0.0,0.0975],...   % title offset
+    'TS',[0.25,0.025],...   % title size
+    'TF',0.8,...            % title font size
+    'SO',[0.0,0.06],...     % slider offset
+    'SS',[0.25,0.031],...   % slider size
+    'EO',[0.075,0.031],...   % edit box offset
+    'ES',[0.11,0.031]);     % edit box size
+
+% User specified UI Control Elements
+% - Sensitivity Cutoff
+UI(1).Control = VsSliderControl('LocationCode','UserB7','Label','Sens. Cutoff',...
+                  'SliderMinMaxVal',[0,1.0,Recon(1).senscutoff],...
+                  'SliderStep',[0.025,0.1],'ValueFormat','%1.3f', ...
+                  'Callback', @SensCutoffCallback ); 
+
+% - Range Change
+MinMaxVal = [64,300,P.endDepth]; % default unit is wavelength
+AxesUnit = 'wls';
+if isfield(Resource.DisplayWindow(1),'AxesUnits')&&~isempty(Resource.DisplayWindow(1).AxesUnits)
+    if strcmp(Resource.DisplayWindow(1).AxesUnits,'mm')
+        AxesUnit = 'mm';
+        MinMaxVal = MinMaxVal * (Resource.Parameters.speedOfSound/1000/Trans.frequency);
+    end
+end
+UI(2).Control = {'UserA1','Style','VsSlider','Label',['Range (',AxesUnit,')'],...
+                 'SliderMinMaxVal',MinMaxVal,'SliderStep',[0.1,0.2],'ValueFormat','%3.0f'};
+UI(2).Callback = text2cell('%RangeChangeCallback');
+
+% - Peak CutOff
+UI(3).Control = {'UserB2','Style','VsSlider','Label','Peak Cutoff',...
+                  'SliderMinMaxVal',[0,20.0,TX(1).peakCutOff],...
+                  'SliderStep',[0.005,0.020],'ValueFormat','%1.3f'};
+UI(3).Callback = text2cell('%PeakCutOffCallback');
+
+% - Max. Burst Length
+UI(4).Control = {'UserB1','Style','VsSlider','Label','Max. BL',...
+                  'SliderMinMaxVal',[0,20.0,TX(1).peakBLMax],...
+                  'SliderStep',[0.005,0.020],'ValueFormat','%1.3f'};
+UI(4).Callback = text2cell('%MaxBLCallback');
+
+% - Motor Control App
+UI(5).Control = {'UserB5','Style','VsPushButton','Label','Initiation'};
+UI(5).Callback = text2cell('%ButtonVelmexCallback(hObject,eventdata)');
+
+UI(6).Control = {'UserB4','Style','VsPushButton','Label','Start Scan'};
+UI(6).Callback = text2cell('%ButtonScanCallback(hObject,eventdata)');
+
+EF(1).Function = vsv.seq.function.ExFunctionDef('UIControl', @UIControl);
+EF(2).Function = vsv.seq.function.ExFunctionDef('movemotor', @movemotor);
+EF(3).Function = vsv.seq.function.ExFunctionDef('saveIQ', @saveIQ);
+
+% Save all the structures to a .mat file.
+% save('MatFiles/L11-4vWideBeam');
+
+scan.scanDisMM  = scanDisMM; % mm
+scan.stepMM     = stepMM; % mm
+scan.nSteps     = nSteps;
+scan.scanIdx    = scanIdx; % Initialize Scan Step #--will change during scan
+
+file.savepath     = savepath;
+file.fname        = fname; 
+% file.saveFileRoot = saveFileRoot; 
+file.savepath2    = savepath2;
+file.fname2       = fname2;
+file.saveFileRoot2= saveFileRoot2; 
+file.dircheck     = 0;     % flag to check if directory exists before saving
+% file.frIdx        = frIdx; % Start Index Numbering here for save file--will change during scan
+
+filename = 'SetUpL11-4vWideBeam.mat';
+save(filename); %filename = 'MatFiles/Matrix1024-8FlashDM.mat'; %VSX;
+
+if autoStartVSX
+    VSX;
+end
+
+return
+
+
+%RangeChangeCallback - Range change
+simMode = evalin('base','Resource.Parameters.simulateMode');
+% No range change if in simulate mode 2.
+if simMode == 2
+    set(hObject,'Value',evalin('base','P.endDepth'));
+    return
+end
+Trans = evalin('base','Trans');
+Resource = evalin('base','Resource');
+scaleToWvl = Trans.frequency/(Resource.Parameters.speedOfSound/1000);
+
+P = evalin('base','P');
+P.endDepth = UIValue;
+if isfield(Resource.DisplayWindow(1),'AxesUnits')&&~isempty(Resource.DisplayWindow(1).AxesUnits)
+    if strcmp(Resource.DisplayWindow(1).AxesUnits,'mm')
+        P.endDepth = UIValue*scaleToWvl;
+    end
+end
+assignin('base','P',P);
+
+PData = evalin('base','PData');
+PData.Size(1) = ceil((P.endDepth-P.startDepth)/PData.PDelta(3));
+PData.Region = repmat(struct('Shape',struct( ...
+                    'Name','Rectangle',...
+                    'Position',[0,0,P.startDepth],...
+                    'width',Trans.spacing*(P.numTx-12),...
+                    'height',P.endDepth-P.startDepth)),1,P.numRays);
+TxOrgX = (-63.5*Trans.spacing):(127*Trans.spacing/(P.numRays-1)):(63.5*Trans.spacing);
+for n = 1:P.numRays, PData(1).Region(n).Shape.Position(1) = TxOrgX(n); end
+PData.Region = computeRegions(PData);
+assignin('base','PData',PData);
+% Update TXPD data of TX structures.
+TX = evalin('base','TX');
+for i = 1:size(TX,2)
+    TX(i).TXPD = computeTXPD(TX(i),PData);
+end
+assignin('base','TX',TX);
+% Update Receive structures.
+Receive = evalin('base', 'Receive');
+maxAcqLength = ceil(sqrt(P.endDepth^2 + ((Trans.numelements-1)*Trans.spacing)^2));
+for i = 1:size(Receive,2)
+    Receive(i).endDepth = maxAcqLength;
+end
+assignin('base','Receive',Receive);
+evalin('base','TGC.rangeMax = P.endDepth;');
+evalin('base','TGC.Waveform = computeTGCWaveform(TGC);');
+evalin('base','Resource.DisplayWindow(1).Position(4) = ceil(PData.Size(1)*PData.PDelta(3)/Resource.DisplayWindow(1).pdelta);');
+Control = evalin('base','Control');
+Control.Command = 'update&Run';
+Control.Parameters = {'PData','InterBuffer','ImageBuffer','TX','Receive','Recon','TGC','DisplayWindow'};
+assignin('base','Control', Control);
+assignin('base', 'action', 'displayChange');
+return
+%RangeChangeCallback
+
+%PeakCutOffCallback
+TX = evalin('base', 'TX');
+for i=1:size(TX,2)
+    TX(i).peakCutOff = UIValue;
+end
+assignin('base','TX',TX);
+% Set Control.Command to set TX
+Control = evalin('base','Control');
+Control.Command = 'update&Run';
+Control.Parameters = {'TX'};
+assignin('base','Control', Control);
+%PeakCutOffCallback
+
+%MaxBLCallback
+TX = evalin('base', 'TX');
+for i=1:size(TX,2)
+    TX(i).peakBLMax = UIValue;
+end
+assignin('base','TX',TX);
+% Set Control.Command to set TX
+Control = evalin('base','Control');
+Control.Command = 'update&Run';
+Control.Parameters = {'TX'};
+assignin('base','Control', Control);
+%MaxBLCallback
+
+%ButtonVelmexCallback(hObject,eventdata);
+initiationApp;%(hObject,eventdata);
+
+%% change the start event
+%ButtonScanCallback(hObject,eventdata);
+% keyboard
+UI      = evalin('base','UI');
+nStart  = evalin('base','nStartScan');%evalin('base','nStartPush');%
+Control = evalin('base','Control');
+if isempty(Control(1).Command), n=1; else n=length(Control)+1; end
+Control(n).Command = 'set&Run';
+Control(n).Parameters = {'Parameters',1,'startEvent',nStart};
+evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
+assignin('base','Control',Control);
+set(UI(6).handle,'BackgroundColor', [0 1 0]);
+%ButtonScanCallback(hObject,eventdata);
+
+% **** Callback routines to be converted by text2cell function. ****
+function SensCutoffCallback(~,~,UIValue)
+%Sensitivity cutoff change
+    ReconL = evalin('base', 'Recon');
+    for i = 1:size(ReconL,2)
+        ReconL(i).senscutoff = UIValue;
+    end
+    assignin('base','Recon',ReconL);
+    Control = evalin('base','Control');
+    Control.Command = 'update&Run';
+    Control.Parameters = {'Recon'};
+    assignin('base','Control', Control);
+end
+function movemotor()
+    file = evalin('base','file');
+    scan = evalin('base','scan');
+    scanIdx        = scan.scanIdx;
+    nSteps         = scan.nSteps;
+    stepMM         = scan.stepMM;
+    if scanIdx<=nSteps
+            motormove(1,stepMM);
+    end
+% keyboard
+    if scan.scanIdx == scan.nSteps
+        %% Check if End of Scan; IF so, return to Flash only imaging (should returnt motor also to start positoon)
+        nStart  = evalin('base','nStartFlashOnly');%evalin('base','nStartPush');%
+        Control = evalin('base','Control');
+        if isempty(Control(1).Command), n=1; else n=length(Control)+1; end
+        Control(n).Command = 'set&Run';
+        Control(n).Parameters = {'Parameters',1,'startEvent',nStart};
+        evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
+        assignin('base','Control',Control);
+    end
+
+    pause(0.15);
+end
+function saveIQ(IBuffer, QBuffer)
+    scan           = evalin('base','scan');
+    scanIdx        = scan.scanIdx;
+    nSteps         = scan.nSteps;
+    scanDisMM      = scan.scanDisMM;
+    stepMM         = scan.stepMM;
+
+    saveIQFlag     = evalin('base','saveIQFlag');
+    file           = evalin('base','file');
+    saveFileRoot2  = file.saveFileRoot2; 
+    savepath2      = file.savepath2; 
+    dircheck       = file.dircheck;
+
+    sprintf('%d of %d steps (%3.3f of %3.3f mm)', scanIdx, nSteps,stepMM*(scanIdx-1),scanDisMM)
+%     IQBuffer       = complex(IBuffer, QBuffer); % VTS-1142 separate I and Q buffers
+% 
+%     IQBuffer_Pre   = IQBuffer(:,:,:,1:na);
+%     IQBuffer_Post  = IQBuffer(:,:,:,na+1:2*na);
+%     TS            = datevec(datetime);
+    if scanIdx<=nSteps
+        if scanIdx==1
+            Trans           = evalin('base','Trans');
+            Receive         = evalin('base','Receive');
+            Resource        = evalin('base','Resource');
+            PData           = evalin('base','PData');
+            TX              = evalin('base','TX');
+            SeqControl      = evalin('base','SeqControl');
+            TPC             = evalin('base','TPC');
+            c               = Resource.Parameters.speedOfSound*1e-3; % mm/us
+            Trans.lambda    = c/Trans.frequency; % mm
+
+            % Get Verasonics beamformed IQ Azimuth coords
+            VBFxL   = Trans.lambda*(PData(1).Size(2)-1)*PData(1).PDelta(1);   % [mm] Beamformed image lateral width 'X'
+            VBFx0MM = Trans.lambda*PData(1).Origin(1);                        % [mm] Beamformed image start coordinate (lateral, X)
+            VBFxfMM = VBFx0MM + VBFxL;                                                  % [mm] Beamformed image end coordinate (lateral, X)
+            xMM     = VBFx0MM:Trans.lambda*PData(1).PDelta(1):VBFxfMM;  % mm  
+
+            % Get Verasonics beamformed IQ depth coords
+            VBFzL   = Trans.lambda*(PData(1).Size(1)-1)*PData(1).PDelta(3);   % [mm] Beamformed image total depth 'Z'   
+            VBFz0MM = Trans.lambda*PData(1).Origin(3);                           % [mm] Beamformed image start coordinate (depth, Z)
+            VBFzfMM = VBFz0MM + VBFzL;                                                   % [mm] Beamformed image end coordinate (depth, Z)                                   
+            zMM  = (VBFz0MM:Trans.lambda*PData(1).PDelta(3):VBFzfMM);  % mm
+            tUS  = zMM/c;                                              % uSec
+    
+            if ~dircheck && ~exist(savepath2,'dir')
+                mkdir(savepath2);
+                dircheck = 1;
+                file.dircheck = dircheck;
+                assignin('base','dircheck',dircheck);
+            end
+            save([saveFileRoot2 '_Param.mat'],'Trans','c','xMM', 'zMM','tUS','Receive',...
+                'TX','SeqControl','TPC','scan','file');
+        end
+        fIdxStr   = sprintf('_%.3d',scanIdx);
+        fSaveName = [saveFileRoot2 fIdxStr];
+%         keyboard
+        % Save Real
+        fid = fopen([fSaveName '_IData.bin'],'wb');
+        fwrite(fid,IBuffer,'int32');
+        fclose(fid);
+    
+        % Save Imag
+        fid = fopen([fSaveName '_QData.bin'],'wb');
+        fwrite(fid,QBuffer,'int32');
+        fclose(fid);
+        scan.scanIdx = scan.scanIdx + 1;
+    %     keyboard
+    end
+    if scanIdx==nSteps % Move motor back to Start Position
+%         keyboard
+        UI           = evalin('base','UI');
+        set(UI(6).handle,'BackgroundColor', [1 0 0]);
+        scan.scanIdx = 1; % Reset Scan Index Counter
+
+        % Get New Timestamp and Saving File / Path In Case Scan is Repeated with Button Press
+        dateStamp = datevec(datetime); % Year, Month, Day, Hour, Minute, Second
+        deteStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(2), dateStamp(3), dateStamp(1)-2000); % mm dd yy
+        timeStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(4), dateStamp(5), round(dateStamp(6))); % hr min sec
+
+        file.savepath2     = [sprintf('%s%s',file.savepath, deteStr) '\'];
+        file.fname2        = sprintf('%s-%s_%s',file.fname, deteStr, timeStr); % sprintf('%s-%s_%s',fname, deteStr, timeStr);
+        file.savepath2     = [file.savepath2 file.fname2 '\']; % Make internal directory
+        file.saveFileRoot2 = [file.savepath2 file.fname2]; 
+        file.dircheck      = 0;     % flag to check if directory exists before saving
+        assignin('base','file',file);
+    end
+    assignin('base','scan',scan);
+end
