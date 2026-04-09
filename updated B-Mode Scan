@@ -49,6 +49,15 @@ P.endDepth   = 192;
 
 % NEWADDITION
 na = 50; % number of detect acquisitions
+SWIFrames = 1;          % number of SWE frames per position (set to 1 for scan)
+pushCycle = 1000;       % push pulse cycles
+maxVoltage = 65;        % maximum voltage for push
+powermax = 250;         % display scaling for SWE
+
+SWIFocusX = 0;
+SWIFocusZ = 50;
+SWIROI.width = 80;
+SWIROI.height = 50;
 
 % Specify factor for converting sequenceRate to frameRate.
 frameRateFactor = 1;
@@ -67,6 +76,10 @@ Resource.Parameters.simulateMode   = 0;
 Trans.name = 'L11-4v';
 Trans.units = 'mm';
 Trans = computeTrans(Trans);
+
+% TPC profiles for power switching - NEWADDITION
+TPC(1).maxHighVoltage = 15;         % Low power for B-mode
+TPC(5).maxHighVoltage = maxVoltage; % High power for push
 
 % check if license activated
 a = getenv('VERASONICS_IS_ACTIVATED');
@@ -100,6 +113,17 @@ TxOrgX = (-63.5*Trans.spacing):(127*Trans.spacing/(P.numRays-1)):(63.5*Trans.spa
 for n = 1:P.numRays, PData(1).Region(n).Shape.Position(1) = TxOrgX(n); end
 PData(1).Region = computeRegions(PData(1));
 
+% PData(2) for SWE visualization - NEWADDITION
+PData(2) = PData(1);
+PData(2).PDelta = [0.5, 0, 0.25];
+PData(2).Size(1) = ceil((P.endDepth-P.startDepth)/PData(2).PDelta(3));
+PData(2).Size(2) = ceil((Trans.numelements*Trans.spacing)/PData(2).PDelta(1));
+PData(2).Region.Shape = struct('Name','Rectangle',...
+    'Position',[SWIFocusX,0,SWIFocusZ-SWIROI.height/2],...
+    'width', SWIROI.width,...
+    'height', SWIROI.height);
+PData(2).Region = computeRegions(PData(2));
+
 % Specify Media object.
 pt1;
 Media.attenuation = -0.5;
@@ -120,6 +144,10 @@ Resource.RcvBuffer(2).numFrames = 1;
 % end of NEWADDITION
 
 Resource.InterBuffer(1).numFrames = 1;   % one intermediate buffer needed.
+%NEWADDITION
+Resource.InterBuffer(2).numFrames = 1;
+Resource.InterBuffer(2).pagesPerFrame = na;
+%end
 Resource.ImageBuffer(1).numFrames = 10;
 Resource.DisplayWindow(1).Title = 'L11-4vWideBeam';
 Resource.DisplayWindow(1).pdelta = 0.35;
@@ -138,6 +166,10 @@ Resource.DisplayWindow(1).Colormap = gray(256);
 TW(1).type = 'parametric';
 TW(1).Parameters = [Trans.frequency,0.67,1,1];
 
+% Push waveform - NEWADDITION
+TW(2).type = 'parametric';
+TW(2).Parameters = [Trans.frequency, 1, pushCycle*2, 1];
+
 scaleToWvl = 1;
 if strcmp(Trans.units, 'mm')
     scaleToWvl = Trans.frequency/(Resource.Parameters.speedOfSound/1000);
@@ -154,31 +186,15 @@ TX = repmat(struct('waveform', 1, ...
                    'peakCutOff', 1.0, ...
                    'peakBLMax', 4.0), 1, P.numRays);
 
-%push pulse - NEWADDITION
-TX(2).waveform = 2;
-TX(2).focus = 50; % adjust if needed
-TX(2).Apod = ones(1, Trans.numelements);
-TX(2).Delay = computeTXDelays(TX(2));
-
-%NEWADDITION
-TX(P.numRays+1) = TX(2);   % make sure its valid
-
+% Push TX structure - NEWADDITION
 TX(P.numRays+1).waveform = 2;
-TX(P.numRays+1).focus = 50;
-TX(P.numRays+1).Apod = ones(1,Trans.numelements);
+TX(P.numRays+1).focus = SWIFocusZ;
+TX(P.numRays+1).focusX = SWIFocusX;
+TX(P.numRays+1).pushElements = 32;
+TX(P.numRays+1).oldElements = 32;
+TX(P.numRays+1).Apod = zeros(1,Trans.numelements);
+TX(P.numRays+1).Apod(64-TX(P.numRays+1).pushElements/2+1 : 64+TX(P.numRays+1).pushElements/2) = 1;
 TX(P.numRays+1).Delay = computeTXDelays(TX(P.numRays+1));
-
-% - Set event specific TX attributes for push.
-TX(2).waveform = 2;
-TX(2).focus = SWIFocusZ;       % wavelength, can be changed in the GUI
-TX(2).focusX = SWIFocusX;      % can be changed in the GUI
-TX(2).pushElements = 32;       % can be changed in the GUI
-
-% Apod = 1 for pushing elements
-TX(2).Apod = zeros(1,Trans.numelements);
-TX(2).Apod(64-TX(2).pushElements/2 +1 : 64+TX(2).pushElements/2) = 1;
-TX(2).Delay = computeTXDelays(TX(2));
-%end of this section of NEWADDITION
 
 % - Set event specific TX attributes.
 for n = 1:P.numRays
@@ -216,20 +232,16 @@ for i = 1:Resource.RcvBuffer(1).numFrames
     end
 end
 
-%swe receive? NEWADDITION
-% - Set event specific Receive attributes for each frame.
+% SWE Receive setup - NEWADDITION
+numBmodeReceives = P.numRays * Resource.RcvBuffer(1).numFrames; % total B‑mode receives
 for i = 1:SWIFrames
-    startIdx = length(Receive); %may or may not need this line, not sure
-    for j = 1:na  % na acquisitions per frame
-        %Receive(na*(i-1)+j+d).callMediaFunc = 1;  % make media move per frame
-        %Receive(na*(i-1)+j+d).bufnum = 2;
-        %Receive(na*(i-1)+j+d).framenum = i;
-        %Receive(na*(i-1)+j+d).acqNum = j;
-
+    startIdx = numBmodeReceives + (i-1)*na;
+    for j = 1:na
         Receive(startIdx + j) = Receive(1); % copy base receive
         Receive(startIdx + j).bufnum = 2;
-        Receive(startIdx + j).framenum = 1;
+        Receive(startIdx + j).framenum = i;
         Receive(startIdx + j).acqNum = j;
+        Receive(startIdx + j).callMediaFunc = 0;
     end
 end
 
@@ -264,6 +276,37 @@ for j = 1:P.numRays
     ReconInfo(j).regionnum = j;
 end
 ReconInfo(P.numRays).Post = 'IQ2IntensityImageBuf';
+
+% ----- SWE Recon Structures -----
+Recon(2).senscutoff = 0.6;
+Recon(2).pdatanum = 1;
+Recon(2).rcvBufFrame = -1;
+Recon(2).IntBufDest = [0,0];
+Recon(2).ImgBufDest = [1,-1];
+Recon(2).RINums = P.numRays+1;
+
+Recon(3).senscutoff = 0.6;
+Recon(3).pdatanum = 2;
+Recon(3).rcvBufFrame = -1;
+Recon(3).IntBufDest = [2,1];
+Recon(3).ImgBufDest = [0,0];
+Recon(3).RINums = (P.numRays+2):(P.numRays+1+na);
+
+% B‑mode reference ReconInfo for SWE display
+ReconInfo(P.numRays+1).mode = 'replaceIntensity';
+ReconInfo(P.numRays+1).txnum = 1;
+ReconInfo(P.numRays+1).rcvnum = numBmodeReceives + 1;
+ReconInfo(P.numRays+1).regionnum = 1;
+
+% IQ ReconInfo for SWE
+for j = 1:na
+    ReconInfo(P.numRays+1+j).mode = 'replaceIQ';
+    ReconInfo(P.numRays+1+j).txnum = 1;
+    ReconInfo(P.numRays+1+j).rcvnum = numBmodeReceives + j;
+    ReconInfo(P.numRays+1+j).pagenum = j;
+    ReconInfo(P.numRays+1+j).regionnum = 1;
+end
+%end NEWADDITION
 
 % Specify Process structure array.
 pers = 2;
@@ -327,6 +370,41 @@ SeqControl(5).argument = 1;
 % nsc = 5; % nsc is count of SeqControl objects
 
 nsc = length(SeqControl)+1;
+
+%SWE SeqControls - NEWADDITION
+SeqControl(nsc).command = 'setTPCProfile';
+SeqControl(nsc).condition = 'immediate';
+SeqControl(nsc).argument = 1;
+nsc = nsc+1;
+
+SeqControl(nsc).command = 'setTPCProfile';
+SeqControl(nsc).condition = 'immediate';
+SeqControl(nsc).argument = 5;
+nsc = nsc+1;
+
+SeqControl(nsc).command = 'noop';
+SeqControl(nsc).argument = 100000; % 100ms charging
+nsc = nsc+1;
+
+SeqControl(nsc).command = 'timeToNextAcq';
+SeqControl(nsc).argument = 500;   % 500us after push
+afterPushSC = nsc;
+nsc = nsc+1;
+
+SeqControl(nsc).command = 'timeToNextAcq';
+SeqControl(nsc).argument = 100;   % 100us PRF (10 kHz)
+trackPRF = nsc;
+nsc = nsc+1;
+
+SeqControl(nsc).command = 'timeToNextEB';
+SeqControl(nsc).argument = 200000; % 200ms between SWE frames
+TTNEB = nsc;
+nsc = nsc+1;
+
+SeqControl(nsc).command = 'triggerOut';
+triggerOutSC = nsc;
+nsc = nsc+1;
+%end NEWADDITION
 
 % Specify Event structure arrays.
 % n = 1;
