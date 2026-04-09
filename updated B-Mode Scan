@@ -289,6 +289,7 @@ Process(2).Parameters = {'srcbuffer','none'};
 
 Process(3).classname = 'External';
 Process(3).method = 'saveIQ';
+Process(3).method = 'processIQ'; %NEWADDITION
 Process(3).Parameters = {'srcbuffer','inter',... % name of buffer to process.
     'srcbufnum',1,...
     'srcframenum',1,...
@@ -449,8 +450,40 @@ nStartSWE = n;   % NEW SWE START EVENT
 
 for motStep = 1:nSteps
 
-    % --- SWE ACQUISITION EVENTS GO HERE ---
-    % (YOU WILL PASTE FROM SWE SCRIPT)
+     % --- PUSH ---
+    Event(n).info = 'Push';
+    Event(n).tx = 2;
+    Event(n).rcv = 0;
+    Event(n).recon = 0;
+    Event(n).process = 0;
+    n = n + 1;
+
+    % --- TRACKING ---
+    for j = 1:na
+        Event(n).info = 'Track';
+        Event(n).tx = 1;
+        Event(n).rcv = startIdx + j;
+        Event(n).recon = 0;
+        Event(n).process = 0;
+        n = n + 1;
+    end
+
+    % --- TRANSFER ---
+    Event(n).info = 'Transfer';
+    Event(n).tx = 0;
+    Event(n).rcv = 0;
+    Event(n).recon = 0;
+    Event(n).process = 0;
+    Event(n).seqControl = transferToHost;
+    n = n + 1;
+
+    % --- RECON + PROCESS ---
+    Event(n).info = 'Recon + Process';
+    Event(n).tx = 0;
+    Event(n).rcv = 0;
+    Event(n).recon = 2;
+    Event(n).process = 3;
+    n = n + 1;
 
     if motStep > 1
         % Move Motor
@@ -480,7 +513,6 @@ for motStep = 1:nSteps
     Event(n).seqControl = 0;
     n = n + 1;
 
-    % 🔥 ADD EXTRA DELAY (YOUR REQUIREMENT)
     Event(n).info = 'Extra SWE Delay';
     Event(n).tx = 0;
     Event(n).rcv = 0;
@@ -1015,4 +1047,21 @@ function processIQ(IBuffer, QBuffer)
         assignin('base','frIdx',frIdx);
         %Pdata
     end
+end
+
+%NEWADDITION
+function processIQ()
+    IQ = evalin('base','RcvData');
+
+    % phase shift calc
+    for k = 1:size(IQ,3)-1
+        I1 = real(IQ(:,:,k));
+        Q1 = imag(IQ(:,:,k));
+        I2 = real(IQ(:,:,k+1));
+        Q2 = imag(IQ(:,:,k+1));
+
+        motion(:,:,k) = I1.*Q2 - I2.*Q1;
+    end
+
+    imagesc(motion(:,:,1)); colormap jet; drawnow;
 end
