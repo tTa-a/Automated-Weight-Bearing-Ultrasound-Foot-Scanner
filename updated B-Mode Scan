@@ -110,6 +110,15 @@ Resource.RcvBuffer(1).datatype = 'int16';
 Resource.RcvBuffer(1).rowsPerFrame = P.numRays*4096;
 Resource.RcvBuffer(1).colsPerFrame = Resource.Parameters.numRcvChannels;
 Resource.RcvBuffer(1).numFrames = 1;    % 30 frames stored in RcvBuffer.
+
+% NEWADDITION
+% RcvBuffer for all raw data
+Resource.RcvBuffer(2).datatype = 'int16';
+Resource.RcvBuffer(2).rowsPerFrame = na*4096;
+Resource.RcvBuffer(2).colsPerFrame = Resource.Parameters.numRcvChannels;
+Resource.RcvBuffer(2).numFrames = 1;
+% end of NEWADDITION
+
 Resource.InterBuffer(1).numFrames = 1;   % one intermediate buffer needed.
 Resource.ImageBuffer(1).numFrames = 10;
 Resource.DisplayWindow(1).Title = 'L11-4vWideBeam';
@@ -150,6 +159,26 @@ TX(2).waveform = 2;
 TX(2).focus = 50; % adjust if needed
 TX(2).Apod = ones(1, Trans.numelements);
 TX(2).Delay = computeTXDelays(TX(2));
+
+% Specify TX structure array.
+TX = repmat(struct('waveform', 1, ...
+    'Origin', [0.0,0.0,0.0], ...
+    'focus', 0.0, ...
+    'Steer', [0.0,0.0], ...
+    'Apod', ones(1,Trans.numelements), ...
+    'Delay', zeros(1,Trans.numelements)), 1, 2);
+
+% - Set event specific TX attributes for push.
+TX(2).waveform = 2;
+TX(2).focus = SWIFocusZ;       % wavelength, can be changed in the GUI
+TX(2).focusX = SWIFocusX;      % can be changed in the GUI
+TX(2).pushElements = 32;       % can be changed in the GUI
+
+% Apod = 1 for pushing elements
+TX(2).Apod = zeros(1,Trans.numelements);
+TX(2).Apod(64-TX(2).pushElements/2 +1 : 64+TX(2).pushElements/2) = 1;
+TX(2).Delay = computeTXDelays(TX(2));
+%end of this section of NEWADDITION
 
 % - Set event specific TX attributes.
 for n = 1:P.numRays
