@@ -383,6 +383,52 @@ for motStep = 1:nSteps
     Event(n).seqControl = 0;
     n = n+1;
 end
+
+%SWE SCAN - NEWADDITION
+% ================= SWE SCAN START =================
+nStartSWE = n;   % NEW SWE START EVENT
+
+for motStep = 1:nSteps
+
+    % --- SWE ACQUISITION EVENTS GO HERE ---
+    % (YOU WILL PASTE FROM SWE SCRIPT)
+
+    if motStep > 1
+        % Move Motor
+        Event(n).info = 'Move Motor SWE';
+        Event(n).tx = 0;
+        Event(n).rcv = 0;
+        Event(n).recon = 0;
+        Event(n).process = 2;
+        Event(n).seqControl = 0;
+        n = n + 1;
+    end
+
+    % Save SWE Data
+    Event(n).info    = 'Save SWE IQ';
+    Event(n).tx      = 0;
+    Event(n).rcv     = 0;
+    Event(n).recon   = 0;
+    Event(n).process = 3;
+    Event(n).seqControl = 0;
+    n = n + 1;
+
+    % 🔥 ADD EXTRA DELAY (YOUR REQUIREMENT)
+    Event(n).info = 'Extra SWE Delay';
+    Event(n).tx = 0;
+    Event(n).rcv = 0;
+    Event(n).recon = 0;
+    Event(n).process = 0;
+
+    SeqControl(nsc).command = 'timeToNextAcq';
+    SeqControl(nsc).argument = 2000000; % 2 sec extra
+    Event(n).seqControl = nsc;
+
+    nsc = nsc + 1;
+    n = n + 1;
+
+end
+
 nsc = nsc + 1;
 %% Jump Back to Collect Next Scan Position
 Event(n).info       = 'Jump Back Flash';
@@ -456,6 +502,10 @@ UI(5).Callback = text2cell('%ButtonVelmexCallback(hObject,eventdata)');
 
 UI(6).Control = {'UserB4','Style','VsPushButton','Label','Start Scan'};
 UI(6).Callback = text2cell('%ButtonScanCallback(hObject,eventdata)');
+
+% - SWE Button NEWADDITION
+UI(7).Control = {'UserB6','Style','VsPushButton','Label','Start SWE Scan'};
+UI(7).Callback = text2cell('%ButtonSWEScanCallback(hObject,eventdata)');
 
 EF(1).Function = vsv.seq.function.ExFunctionDef('UIControl', @UIControl);
 EF(2).Function = vsv.seq.function.ExFunctionDef('movemotor', @movemotor);
@@ -585,6 +635,22 @@ evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
 assignin('base','Control',Control);
 set(UI(6).handle,'BackgroundColor', [0 1 0]);
 %ButtonScanCallback(hObject,eventdata);
+
+% NEWADDITION
+%ButtonSWEScanCallback(hObject,eventdata);
+UI      = evalin('base','UI');
+nStart  = evalin('base','nStartSWE');   % NEW SWE START
+Control = evalin('base','Control');
+
+if isempty(Control(1).Command), n=1; else n=length(Control)+1; end
+
+Control(n).Command = 'set&Run';
+Control(n).Parameters = {'Parameters',1,'startEvent',nStart};
+
+evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
+assignin('base','Control',Control);
+
+set(UI(7).handle,'BackgroundColor', [0 1 0]);
 
 % **** Callback routines to be converted by text2cell function. ****
 function SensCutoffCallback(~,~,UIValue)
