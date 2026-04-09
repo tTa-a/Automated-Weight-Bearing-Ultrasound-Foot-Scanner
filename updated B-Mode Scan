@@ -47,6 +47,9 @@ P.numRays    = 48; % no. of rays in frame
 P.startDepth = 5;
 P.endDepth   = 192;
 
+% NEWADDITION
+na = 50; % number of detect acquisitions
+
 % Specify factor for converting sequenceRate to frameRate.
 frameRateFactor = 1;
 
@@ -142,6 +145,12 @@ TX = repmat(struct('waveform', 1, ...
                    'peakCutOff', 1.0, ...
                    'peakBLMax', 4.0), 1, P.numRays);
 
+%push pulse - NEWADDITION
+TX(2).waveform = 2;
+TX(2).focus = 50; % adjust if needed
+TX(2).Apod = ones(1, Trans.numelements);
+TX(2).Delay = computeTXDelays(TX(2));
+
 % - Set event specific TX attributes.
 for n = 1:P.numRays
     TX(n).Origin(1) = TxOrgX(n);
@@ -236,14 +245,21 @@ Process(2).method = 'movemotor';
 Process(2).Parameters = {'srcbuffer','none'};
 
 % EF3 is external function for shearwave visualization
-Process(4) = Process(3);
-%above line is NEWADDITION
+
 Process(3).classname = 'External';
 Process(3).method = 'saveIQ';
 Process(3).Parameters = {'srcbuffer','inter',... % name of buffer to process.
     'srcbufnum',1,...
     'srcframenum',1,...
     'dstbuffer','none'};
+
+% NEWADDITION
+Process(4).classname = 'External';
+Process(4).method = 'processIQ';
+Process(4).Parameters = {'srcbuffer','SWE', ...
+                         'srcbufnum',1, ...
+                         'srcframenum',1, ...
+                         'dstbuffer','SWEprocessed'};
 
 % Specify SeqControl structure arrays.
 %  - Jump back to Flash start.
@@ -405,6 +421,14 @@ for motStep = 1:nSteps
         Event(n).seqControl = 0;
         n = n + 1;
     end
+
+ % Acquire SWE frame
+    Event(n).info = 'Acquire SWE';
+    Event(n).tx = 1;  % or the correct TX number for SWE
+    Event(n).rcv = 1;
+    Event(n).Process = 4;
+    Event(n).SeqControl = 0;
+    n = n + 1;
 
     % Save SWE Data
     Event(n).info    = 'Save SWE IQ';
