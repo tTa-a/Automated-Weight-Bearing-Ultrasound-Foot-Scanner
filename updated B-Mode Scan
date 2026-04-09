@@ -277,7 +277,7 @@ for j = 1:P.numRays
 end
 ReconInfo(P.numRays).Post = 'IQ2IntensityImageBuf';
 
-% ----- SWE Recon Structures -----
+% SWE Recon Structures - NEWADDITION
 Recon(2).senscutoff = 0.6;
 Recon(2).pdatanum = 1;
 Recon(2).rcvBufFrame = -1;
@@ -530,108 +530,113 @@ for motStep = 1:nSteps
     n = n+1;
 end
 
-%SWE SCAN - NEWADDITION
-%
-nStartSWE = n;   % NEW SWE START EVENT
-startIdx = P.numRays * Resource.RcvBuffer(1).numFrames;
+%SWE SCAN EVENTS - NEWADDITION
+nStartSWE = n;  % Mark start of SWE scan events
 
 for motStep = 1:nSteps
-
-     % --- PUSH ---
-    Event(n).info = 'Push';
-    Event(n).tx = P.numRays + 1;
+    % Switch to high power profile
+    Event(n).info = 'Switch to profile 5';
+    Event(n).tx = 0;
     Event(n).rcv = 0;
     Event(n).recon = 0;
     Event(n).process = 0;
-    Event(n).seqControl = 0;
-    n = n + 1;
-
-%delay after push, don't think we need this though NEWADDITION
-%    Event(n).info = 'Push Delay';
-%    Event(n).tx = 0;
-%    Event(n).rcv = 0;
-%    Event(n).recon = 0;
-%    Event(n).process = 0;
-
-%    SeqControl(nsc).command = 'timeToNextAcq';
-%    SeqControl(nsc).argument = 5000; % 5 ms
-
-%    Event(n).seqControl = nsc;
-%    nsc = nsc + 1;
-%    n = n + 1;
-
-    % --- TRACKING ---
+    Event(n).seqControl = nsc-7; % setTPCProfile(5)
+    n = n+1;
+    
+    Event(n).info = 'Charge cap';
+    Event(n).tx = 0;
+    Event(n).rcv = 0;
+    Event(n).recon = 0;
+    Event(n).process = 0;
+    Event(n).seqControl = nsc-6; % noop (100ms)
+    n = n+1;
+    
+    % Push transmit
+    Event(n).info = 'Push transmit';
+    Event(n).tx = P.numRays+1;
+    Event(n).rcv = 0;
+    Event(n).recon = 0;
+    Event(n).process = 0;
+    Event(n).seqControl = [afterPushSC, TTNEB];
+    n = n+1;
+    
+    % Tracking acquisitions
     for j = 1:na
-        Event(n).info = 'Track';
+        Event(n).info = sprintf('Track %d', j);
         Event(n).tx = 1;
-        Event(n).rcv = length(Receive) - na + j;
+        Event(n).rcv = numBmodeReceives + (motStep-1)*na + j;
         Event(n).recon = 0;
         Event(n).process = 0;
-        n = n + 1;
+        if j < na
+            Event(n).seqControl = trackPRF;
+        else
+            Event(n).seqControl = 0;
+        end
+        n = n+1;
     end
-
-    % --- TRANSFER ---
-    Event(n).info = 'Transfer';
+    
+    % Transfer to host
+    Event(n).info = 'Transfer SWE data';
     Event(n).tx = 0;
     Event(n).rcv = 0;
     Event(n).recon = 0;
     Event(n).process = 0;
-    %Event(n).seqControl = transferToHost;
-    SeqControl(nsc).command = 'transferToHost';
     Event(n).seqControl = nsc;
-    nsc = nsc + 1;
-    n = n + 1;
-
-    % --- RECON + PROCESS ---
-    Event(n).info = 'Recon + Process';
+    SeqControl(nsc).command = 'transferToHost';
+    nsc = nsc+1;
+    n = n+1;
+    
+    % Reconstruct
+    Event(n).info = 'Recon SWE';
     Event(n).tx = 0;
     Event(n).rcv = 0;
-    Event(n).recon = 2;
-    Event(n).process = 4;   % SWE processing
-    n = n + 1;
-
+    Event(n).recon = [2,3];
+    Event(n).process = 0;
+    Event(n).seqControl = 0;
+    n = n+1;
+    
+    % Process IQ (external function)
+    Event(n).info = 'Process IQ';
+    Event(n).tx = 0;
+    Event(n).rcv = 0;
+    Event(n).recon = 0;
+    Event(n).process = 5;  % index of processIQ in Process list
+    Event(n).seqControl = 0;
+    n = n+1;
+    
+    % Move motor (except first position)
     if motStep > 1
-        % Move Motor
         Event(n).info = 'Move Motor SWE';
         Event(n).tx = 0;
         Event(n).rcv = 0;
         Event(n).recon = 0;
-        Event(n).process = 2;
+        Event(n).process = 3;  % movemotor
         Event(n).seqControl = 0;
-        n = n + 1;
+        n = n+1;
     end
-
- % Acquire SWE frame
-    %Event(n).info = 'Acquire SWE';
-    %Event(n).tx = 1;
-    %Event(n).rcv = 1;
-    %Event(n).Process = 4;
-
-    % Save SWE Data
-    Event(n).info    = 'Save SWE IQ';
-    Event(n).tx      = 0;
-    Event(n).rcv     = 0;
-    Event(n).recon   = 0;
-    Event(n).process = 3;
-    Event(n).seqControl = 0;
-    n = n + 1;
-
-    Event(n).info = 'Extra SWE Delay';
+    
+    % Save SWE data
+    Event(n).info = 'Save SWE IQ';
     Event(n).tx = 0;
     Event(n).rcv = 0;
     Event(n).recon = 0;
-    Event(n).process = 0;
-
-    SeqControl(nsc).command = 'timeToNextAcq';
-    SeqControl(nsc).argument = 2000000; % 2 sec extra
-    Event(n).seqControl = nsc;
-
-    nsc = nsc + 1;
-    n = n + 1;
-
+    Event(n).process = 6;  % saveIQ_SWE
+    Event(n).seqControl = 0;
+    n = n+1;
 end
 
-nsc = nsc + 1;
+% Jump back to start of SWE scan
+Event(n).info = 'Jump back SWE';
+Event(n).tx = 0;
+Event(n).rcv = 0;
+Event(n).recon = 0;
+Event(n).process = 0;
+Event(n).seqControl = nsc;
+SeqControl(nsc).command = 'jump';
+SeqControl(nsc).argument = nStartSWE;
+nsc = nsc+1;
+%end NEWADDITION
+
 %% Jump Back to Collect Next Scan Position
 Event(n).info       = 'Jump Back Flash';
 Event(n).tx         = 0;
@@ -979,98 +984,437 @@ function saveIQ(IBuffer, QBuffer)
     assignin('base','scan',scan);
 end
 
+function saveIQ_SWE(IBuffer, QBuffer)
+    scan = evalin('base','scan');
+    file = evalin('base','file');
+    saveIQFlag = evalin('base','saveIQFlag');
+    
+    if ~saveIQFlag
+        return;
+    end
+    
+    scanIdx = scan.scanIdx;
+    saveFileRoot2 = file.saveFileRoot2;
+    
+    % Save I and Q buffers
+    fIdxStr = sprintf('_%.3d_SWE', scanIdx);
+    fSaveName = [saveFileRoot2 fIdxStr];
+    
+    fid = fopen([fSaveName '_IData.bin'], 'wb');
+    fwrite(fid, IBuffer, 'int32');
+    fclose(fid);
+    
+    fid = fopen([fSaveName '_QData.bin'], 'wb');
+    fwrite(fid, QBuffer, 'int32');
+    fclose(fid);
+    
+    % Optionally save MovieData as .mat
+    if evalin('base','exist(''MovieData'',''var'')')
+        MovieData = evalin('base','MovieData');
+        save([fSaveName '_MovieData.mat'], 'MovieData');
+    end
+    
+    % Increment scan index for next position
+    scan.scanIdx = scan.scanIdx + 1;
+    assignin('base','scan', scan);
+    
+    fprintf('Saved SWE data for position %d\n', scanIdx);
+end
+
+function ButtonSWEScanCallback(hObject, eventdata)
+    UI = evalin('base','UI');
+    scan = evalin('base','scan');
+    scan.scanIdx = 1;  % Reset scan index
+    assignin('base','scan',scan);
+    
+    nStart = evalin('base','nStartSWE');
+    Control = evalin('base','Control');
+    if isempty(Control(1).Command)
+        n = 1;
+    else
+        n = length(Control) + 1;
+    end
+    Control(n).Command = 'set&Run';
+    Control(n).Parameters = {'Parameters',1,'startEvent',nStart};
+    evalin('base',['Resource.Parameters.startEvent = ',num2str(nStart),';']);
+    assignin('base','Control',Control);
+    set(UI(7).handle,'BackgroundColor', [0 1 0]);
+end
+
 %% SWE Function - NEWADDITION
 function processIQ(IBuffer, QBuffer)
-
-    % ===================== IQ CONVERSION =====================
+    % Simplified version for SWE scanning only
+    % Computes MovieData and stores in base workspace
+    persistent kernel2D
+    if isempty(kernel2D)
+        kernel2D = [0.0073 0.0208 0.0294 0.0208 0.0073;
+                    0.0208 0.0589 0.0833 0.0589 0.0208;
+                    0.0294 0.0833 0.1179 0.0833 0.0294;
+                    0.0208 0.0589 0.0833 0.0589 0.0208;
+                    0.0073 0.0208 0.0294 0.0208 0.0073];
+    end
+    
     IQBuffer = complex(IBuffer, QBuffer);
-
-    % ===================== BASE VARIABLES =====================
-    Trans    = evalin('base','Trans');
-    Receive  = evalin('base','Receive');
-    Resource = evalin('base','Resource');
-    PData    = evalin('base','PData');
-    TX       = evalin('base','TX');
-    SeqControl = evalin('base','SeqControl');
-
+    PData = evalin('base','PData');
+    SWIROI = evalin('base','SWIROI');
     na = evalin('base','na');
-
-    % ===================== ROI (SAFE DEFAULT) =====================
-    % Instead of SWIROI dependency, we derive ROI from PData
-    ROILA = (PData(1).Region(1).PixelsLA + 1);
-
-    Depth = size(IQBuffer,1);
-    Width = size(IQBuffer,2);
-
+    
+    ROILA = (PData(2).Region.PixelsLA+1);
+    Depth = floor(SWIROI.height / PData(2).PDelta(3));
+    Width = length(ROILA) / Depth;
+    if mod(Width,1) ~= 0
+        Width = floor(SWIROI.width / PData(2).PDelta(1));
+        Depth = length(ROILA) / Width;
+    end
+    
     MovieData = zeros(Depth, Width, na-1);
-
-    % ===================== DISPLAY (OPTIONAL SAFE) =====================
-    % Only runs if figure exists
-    try
-        SWIfigHandle = evalin('base','SWIfigHandle');
-
-        if ishandle(SWIfigHandle)
-            figure(SWIfigHandle);
-        end
-    catch
-        SWIfigHandle = [];
-    end
-
-    % ===================== FILTER =====================
-    kernel2D = [
-        0.0073 0.0208 0.0294 0.0208 0.0073;
-        0.0208 0.0589 0.0833 0.0589 0.0208;
-        0.0294 0.0833 0.1179 0.0833 0.0294;
-        0.0208 0.0589 0.0833 0.0589 0.0208;
-        0.0073 0.0208 0.0294 0.0208 0.0073;
-    ];
-
-    % ===================== FIRST FRAME =====================
-    IQ1 = IQBuffer(:,:,1,3);
-    IQ2 = IQBuffer(:,:,1,4);
-
-    Im = imag(IQ1(ROILA)) .* real(IQ2(ROILA)) - imag(IQ2(ROILA)) .* real(IQ1(ROILA));
-    Re = real(IQ1(ROILA)) .* real(IQ2(ROILA)) + imag(IQ1(ROILA)) .* imag(IQ2(ROILA));
-
-    Power = reshape((Im.^2 + Re.^2).^0.125, Depth, Width);
-
-    Power = filter2(Power, kernel2D, 'same');
-
-    if ~isempty(SWIfigHandle)
-        imagesc(Power); colormap jet; drawnow;
-    end
-
-    MovieData(:,:,1) = Power;
-
-    % ===================== LOOP OVER TRACKING =====================
+    
     for i = 2:na-1
-
         IQ1 = IQBuffer(:,:,1,i);
         IQ2 = IQBuffer(:,:,1,i+1);
-
-        Im = imag(IQ1(ROILA)) .* real(IQ2(ROILA)) - imag(IQ2(ROILA)) .* real(IQ1(ROILA));
-        Re = real(IQ1(ROILA)) .* real(IQ2(ROILA)) + imag(IQ1(ROILA)) .* imag(IQ2(ROILA));
-
+        ImMean = (imag(IQ1(ROILA)) + imag(IQ2(ROILA)))/2;
+        ReMean = (real(IQ1(ROILA)) + real(IQ2(ROILA)))/2;
+        Im = (imag(IQ1(ROILA))-ImMean) .* (real(IQ2(ROILA))-ReMean) - ...
+             (imag(IQ2(ROILA))-ImMean) .* (real(IQ1(ROILA))-ReMean);
+        Re = (imag(IQ1(ROILA))-ImMean) .* (imag(IQ2(ROILA))-ImMean) + ...
+             (real(IQ1(ROILA))-ReMean) .* (real(IQ2(ROILA))-ReMean);
         Power = reshape((Im.^2 + Re.^2).^0.125, Depth, Width);
-
         Power = filter2(Power, kernel2D, 'same');
-
         MovieData(:,:,i) = Power;
+    end
+    
+    assignin('base', 'MovieData', MovieData);
+end
 
-        if ~isempty(SWIfigHandle)
-            imagesc(Power); colormap jet; drawnow;
-        end
+
+% probably don't need the functions below this
+function focusCorrection(varargin)
+
+    TX = evalin('base','TX');
+    Trans = evalin('base','Trans');
+    Location = evalin('base','Location');
+
+    pushElements = TX(2).pushElements;
+
+    if ~isfield(Location,'newX')
+        Location.oldX = TX(2).focusX;
+        Location.oldZ = TX(2).focus;
+        Location.newX = TX(2).focusX;
+        Location.newZ = TX(2).focus;
+        Ind = find(TX(2).Apod == 1);
+        Location.pushStartEle = Ind(1);
     end
 
-    % ===================== STORE OUTPUT =====================
-    assignin('base','MovieData',MovieData);
+    x = Location.newX;
+    z = Location.newZ;
 
-    % ===================== SAVE =====================
-    saveFlag = evalin('base','saveIQFlag');
+    % Location.PosForEvenPush indicates the x-coor of the right edge of each element
+    % LOcation.PosForOddPush indicates the x-coor of the center of each element
+    if mod(pushElements,2) == 0
+        focusLimit = [Location.PosForEvenPush(pushElements/2),Location.PosForEvenPush(Trans.numelements-pushElements/2)];
+        if x < focusLimit(1), x = focusLimit(1); elseif x > focusLimit(2), x = focusLimit(2); end
+        [value,eleInd] = min(abs(x - Location.PosForEvenPush));
+        Location.newX = Location.PosForEvenPush(eleInd);
+        Location.pushStartEle = eleInd - pushElements/2 + 1;
+    else
+        focusLimit = [Location.PosForOddPush((pushElements+1)/2),Location.PosForOddPush(Trans.numelements-(pushElements-1)/2)];
+        if x < focusLimit(1), x = focusLimit(1);
+        elseif x > focusLimit(2), x = focusLimit(2); end
+        [value,eleInd] = min(abs(x - Location.PosForOddPush));
+        Location.newX = Location.PosForOddPush(eleInd);
+        Location.pushStartEle = eleInd - (pushElements-1)/2;
+    end
 
-    if saveFlag
-        file = evalin('base','file');
+    Location.pushStartCoor = Location.PosForEvenPush(Location.pushStartEle);
+    assignin('base','Location',Location);
 
-        save([file.saveFileRoot2 '_SWE.mat'], 'MovieData');
+end
+
+function moveFocus(varargin)
+
+    freeze = evalin('base','freeze');
+    vsExit = evalin('base','vsExit');
+    ROIpos = evalin('base','ROIpos');
+
+   if freeze == 0 && vsExit == 0  % no response if freeze or exit
+        UI = evalin('base','UI');
+        TX = evalin('base','TX');
+        Trans = evalin('base','Trans');
+        SWIROI = evalin('base','SWIROI');
+        Location = evalin('base','Location');
+        ROIpos   = evalin('base','ROIpos');
+        PData    = evalin('base','PData');
+
+        ROILA = (PData(2).Region.PixelsLA+1);
+        Depth = floor(SWIROI.height/PData(2).PDelta(3));%size(IQBuffer,1);%PData(2).Size(1);
+        Width = length(ROILA)/Depth;
+        if ~isequal(mod(Width,1),0)
+            Width = floor(SWIROI.width/PData(2).PDelta(1));%size(IQBuffer,2);%PData(2).Size(2);
+            Depth = length(ROILA)/Width;
+        end
+
+        axisChannel = linspace(ROIpos(1),ROIpos(1)+ROIpos(3),Width);
+        axisDepth   = linspace(ROIpos(2),ROIpos(2)+ROIpos(4),Depth);
+
+        Location.oldX = TX(2).focusX;
+        Location.oldZ = TX(2).focus;
+
+        bmodeFigHandle = evalin('base','Resource.DisplayWindow(1).figureHandle');
+        bmodeAxes = get(bmodeFigHandle,'currentAxes');
+        currentPos = get(bmodeAxes,'CurrentPoint');
+        YLim = get(bmodeAxes,'YLim');
+
+        Location.newX = currentPos(1);
+        Location.newZ = currentPos(3);
+
+        if Location.newZ > YLim(2)-5, Location.newZ = YLim(2)-5;
+        elseif Location.newZ < 10, Location.newZ = 10;
+        end
+
+        assignin('base','Location',Location);
+        assignin('base','moveTarget','Focus');
+        focusCorrection();
+
+        Location = evalin('base','Location');
+
+        msg = ['Move focus to (',num2str(Location.newX,'%3.2f'),',',num2str(Location.newZ,'%3.2f'),')....'];
+        TXupdate(msg,'TX');
+
+    end
+end
+
+function moveROI(varargin)
+
+    freeze = evalin('base','freeze');
+    vsExit = evalin('base','vsExit');
+
+    if freeze == 0 && vsExit == 0  % no response if freeze or exit
+
+        ax = axis;
+        xrange = ax(2)-ax(1); % range of x-axis
+        yrange = ax(4)-ax(3); % range of y-axis
+
+        gcfUnits = get(gcf,'Units');
+        pltUnits = get(gca,'Units');
+        set(gcf,'Units','pixels')
+        set(gca,'Units','normalized');
+
+        theRect = get(gcbo,'Position'); % position of clicked rectangle (figure units)
+        theFig = get(gcf,'Position'); % position of figure on desktop (pixel units)
+        thePlot = get(gca,'Position'); % position of plot within figure (percentages)
+
+        pt1 = get(gcf,'CurrentPoint'); % button down detected (pixel units)
+        pt2 = get(gca,'CurrentPoint'); % button down detected (figure units)
+
+        set(gcf,'Units',gcfUnits);
+        set(gca,'Units',pltUnits);
+
+        xoffset = pt2(1,1)-theRect(1);
+        if isequal( get(gca,'Ydir'), 'reverse' )
+            yoffset = theRect(2)-pt2(1,2)+theRect(4);
+        else
+            yoffset = pt2(1,2)-theRect(2);
+        end
+
+        x = pt1(1) - xoffset/xrange * theFig(3)*thePlot(3); % calc. x location in pixels
+        y = pt1(2) - yoffset/yrange * theFig(4)*thePlot(4); % calc. y location in pixels
+        wt = theRect(3)/xrange * theFig(3) * thePlot(3); % calc. width in pixels
+        ht = theRect(4)/yrange * theFig(4) * thePlot(4); % calc. height in pixels
+
+        beforeRect = [x y wt ht]; % starting rectange (pixels)
+        afterRect = dragrect(beforeRect); % move around
+        pixDiff = afterRect(1:2)-beforeRect(1:2); % find the change in x/y pixel units
+        figDiff = pixDiff .* ... % convert change to figure units
+            [xrange/(theFig(3)*thePlot(3)) yrange/(theFig(4)*thePlot(4))];
+
+        if isequal( get(gca,'Ydir'), 'reverse' )
+            newY = pt2(1,2) - (figDiff(2)-yoffset)-theRect(4);
+        else
+            newY = pt2(1,2) + figDiff(2) - yoffset;
+        end
+
+        newX = pt2(1,1) + figDiff(1) - xoffset;
+
+        P = evalin('base','P');
+        Location = evalin('base','Location');
+
+        if newX < Location.Element(1)-0.5, newX = Location.Element(1)-0.5;
+        elseif newX > Location.Element(end)+0.5-theRect(3), newX = Location.Element(end)+0.5-theRect(3); end
+
+        if newY < P.startDepth, newY = P.startDepth;
+        elseif newY > P.endDepth - theRect(4), newY = P.endDepth - theRect(4); end
+
+        set(gcbo,'Position',[newX newY theRect(3) theRect(4)]) % move rectangle to the new location
+        assignin('base','ROIpos',[newX newY theRect(3) theRect(4)]);
+
+        % Trans and PData are required for computeRegions
+        PData = evalin('base','PData');
+        SWIROI = evalin('base','SWIROI');
+
+        PData(2).Region.Shape.Position = [newX+SWIROI.width/2,0,newY];
+        PData(2).Region = computeRegions(PData(2));
+
+        assignin('base','PData',PData);
+        assignin('base','newIQ',1);
+
+        Control = evalin('base','Control');
+        Control.Command = 'update&Run';
+        Control.Parameters = {'PData','Recon'};
+        assignin('base','Control', Control);
+
+    end
+end
+
+function TXupdate(finalMsg,adjustCase)
+
+    TX = evalin('base','TX');
+    Trans = evalin('base','Trans');
+    Location = evalin('base','Location');
+
+    % Location.newX won't be assigned if new focus is not determined
+    if ~isfield(Location,'pushStartEle')
+        Ind = find(TX(2).Apod == 1);
+        Location.pushStartEle = Ind(1);
+    end
+
+    oldApod = TX(2).Apod;
+    TX(2).Apod = zeros(1,Trans.numelements);
+    TX(2).Apod(Location.pushStartEle:Location.pushStartEle+TX(2).pushElements-1) = 1;
+    fprintf([finalMsg, '\n']);
+
+    switch adjustCase
+        case 'TX'
+            TX(2).focusX = Location.newX;
+            TX(2).Origin = Location.newX;
+            TX(2).focus = Location.newZ;
+            TX(2).oldElements = TX(2).pushElements;
+            TX(2).Delay = computeTXDelays(TX(2));
+            assignin('base','TX', TX);
+            Control.Parameters = {'TX'};
+        case 'TW'
+            evalin('base','TW(2).oldCycles = pushCycle;');
+            Control.Parameters = {'TW'};
+    end
+
+    Control.Command = 'update&Run';
+    assignin('base','Control', Control);
+
+end
+
+function closeIQfig(varargin)
+
+    if evalin('base','vsExit')
+        delete(gcf)
+    else
+        @SWIoff;
+    end
+
+end
+
+function moveMouse(varargin)
+
+    h = varargin{3};
+    p = get(h.Parent,'CurrentPoint');
+    x = p(1,1);
+    y = p(1,2);
+
+    ROIHandle = evalin('base','ROIHandle');
+    ROIpos = get(ROIHandle,'Position');
+    x1 = ROIpos(1);
+    x2 = ROIpos(1)+ROIpos(3);
+    y1 = ROIpos(2);
+    y2 = ROIpos(2)+ROIpos(4);
+    d = 1;
+
+    if (x1<x && x<x2 && y1-d<y && y<y1+d) || ...
+       (x1<x && x<x2 && y2-d<y && y<y2+d) || ...
+       (y1<y && y<y2 && x1-d<x && x<x1+d) || ...
+       (y1<y && y<y2 && x2-d<x && x<x2+d)
+        set(ROIHandle.Parent.Parent,'pointer','hand');
+    else
+        set(ROIHandle.Parent.Parent,'pointer','arrow');
+    end
+
+end
+
+function replayIQ(varargin)
+    freeze = evalin('base','freeze');
+    % figClose = evalin('base','figClose');
+
+    if freeze
+        replay = 'on';
+        assignin('base','replay','on');
+
+        % need copyBuffers to access IQData
+        Control.Command = 'copyBuffers';
+        runAcq(Control); % NOTE:  If runAcq() has an error, it reports it then exits MATLAB.
+
+        UI = evalin('base','UI');
+        TX = evalin('base','TX');
+        ROIpos = evalin('base','ROIpos');
+        MovieData = evalin('base','MovieData');
+        SWIfigHandle = evalin('base','SWIfigHandle');
+
+        set(UI(8).handle,'Visible','off');
+        set(UI(9).handle,'Visible','on');
+
+        disp('replay shearwave imaging....');
+
+        x = round(TX(2).focusX);
+        z = TX(2).focus;
+
+        IQBuffer = complex(IData{2},QData{2});
+
+        Depth = size(IQBuffer,1);
+        Width = size(IQBuffer,2);
+
+        na = evalin('base','na');
+
+        IQMovie(na-1) = struct('cdata',[],'colormap',[]);
+        SWIimageHandle = evalin('base','SWIimageHandle');
+
+        evalin('base','clear IQMovie');
+
+        while strcmp(replay,'on')
+
+            for i = 1:na-1
+                tic
+                replay = evalin('base','replay');
+                freeze = evalin('base','freeze');
+                loopfps = evalin('base','loopfps');
+                powermax = evalin('base', 'powermax');
+
+                % if GUI is closed, return
+                if evalin('base','vsExit == 1')
+                    return
+                end
+
+                % unfreeze will stop replay
+                if ~freeze || strcmp(replay,'off') == 1
+                    set(UI(8).handle,'Visible','on');
+                    set(UI(9).handle,'Visible','off');
+                    assignin('base','replay','off');
+                    return
+                end
+
+                set(SWIimageHandle,'CData',squeeze(MovieData(:,:,i)));
+                drawnow
+                caxis(get(SWIfigHandle,'currentAxes'),[50,powermax]);
+
+                frameData = getframe(SWIfigHandle);
+                % padding to a multiple of two for MPEG-4 format
+                [row,col,~]=size(frameData.cdata);
+                if ~isequal(mod(row,2),0)
+                    frameData.cdata(end,:,:) = [];
+                end
+                if ~isequal(mod(col,2),0)
+                    frameData.cdata(:,end,:) = [];
+                end
+                IQMovie(i) = frameData;
+                pause(1/loopfps-toc);
+            end
+
+            assignin('base','IQMovie',IQMovie);
+        end
     end
 end
