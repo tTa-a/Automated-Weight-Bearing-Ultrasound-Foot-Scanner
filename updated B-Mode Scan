@@ -236,6 +236,8 @@ Process(2).method = 'movemotor';
 Process(2).Parameters = {'srcbuffer','none'};
 
 % EF3 is external function for shearwave visualization
+Process(4) = Process(3);
+%above line is NEWADDITION
 Process(3).classname = 'External';
 Process(3).method = 'saveIQ';
 Process(3).Parameters = {'srcbuffer','inter',... % name of buffer to process.
@@ -775,4 +777,177 @@ function saveIQ(IBuffer, QBuffer)
         assignin('base','file',file);
     end
     assignin('base','scan',scan);
+end
+
+% SWE Function - NEWADDITION
+function processIQ(IBuffer, QBuffer)
+    IQBuffer = complex(IBuffer, QBuffer); % VTS-1142 separate I and Q buffers
+%     keyboard
+    %processIQFunction: Computes power estimates from IQData
+    %		Im = I(k) * Q(k+1) - I(k+1) * Q(k)
+    %		Re = I(k) * I(k+1) + Q(k) * Q(k+1)
+    %		Power = sqrt(Im*Im + Re*Re);
+% keyboard
+    persistent recHandle markHandle myHandle recTrans
+    
+    Trans           = evalin('base','Trans');
+    Receive         = evalin('base','Receive');
+    Resource        = evalin('base','Receive');
+    PData           = evalin('base','PData');
+    TX              = evalin('base','TX');
+    SeqControl      = evalin('base','SeqControl');
+
+    SWIROI         = evalin('base','SWIROI');
+    ROIpos         = evalin('base','ROIpos');
+    
+    SWIfigHandle   = evalin('base','SWIfigHandle');
+    bmodeFigHandle = evalin('base','Resource.DisplayWindow(1).figureHandle');
+
+    saveIQFlag     = evalin('base','saveIQFlag');
+    saveFileRoot   = evalin('base','saveFileRoot');
+
+    na    = evalin('base','na');
+    newIQ = evalin('base','newIQ');
+
+    powermax = evalin('base', 'powermax');
+    moveTarget = evalin('base','moveTarget');
+    frIdx = evalin('base','frIdx');
+    
+    ROILA = (PData(2).Region.PixelsLA+1);
+
+    Depth = floor(SWIROI.height/PData(2).PDelta(3));%size(IQBuffer,1);%PData(2).Size(1);
+    Width = length(ROILA)/Depth;
+
+    if ~isequal(mod(Width,1),0)
+        Width = floor(SWIROI.width/PData(2).PDelta(1));%size(IQBuffer,2);%PData(2).Size(2);
+        Depth = length(ROILA)/Width;
+    end
+
+    MovieData = zeros(Depth,Width,na-1);
+
+    x = TX(2).focusX;
+    z = TX(2).focus;
+
+    % Focus mark, SWIROI,  and Transducer rect on bmode figure
+    if ishandle(bmodeFigHandle)
+        if  isempty(recHandle) || ~ishandle(recHandle)
+            figure(bmodeFigHandle), hold on,
+            recHandle = rectangle('Position',[x-SWIROI.width/2,z-SWIROI.height/2,SWIROI.width,SWIROI.height],'EdgeColor','w','LineWidth',2);
+            recTrans  = rectangle('Position',[x-TX(2).pushElements*Trans.spacing/2,4,TX(2).pushElements*Trans.spacing,4],'EdgeColor','r','FaceColor','r');
+            markHandle = plot(x,z,'xr','MarkerFaceColor','r','MarkerSize',8,'Linewidth',2);hold off;
+            assignin('base','TransHandle',recTrans);
+            assignin('base','ROIHandle',recHandle);
+            assignin('base','markHandle',markHandle);
+        else
+            switch moveTarget
+                case 'Focus'
+                    set(markHandle,'XData',x);
+                    set(markHandle,'YData',z);
+                    set(recTrans,'Position',[x-TX(2).pushElements*Trans.spacing/2,4,TX(2).pushElements*Trans.spacing,4]);
+                    assignin('base','moveTarget','jump');
+                case 'SWIROI'
+                    set(recHandle,'Position',ROIpos);
+                    assignin('base','moveTarget','jump');
+                case 'jump'
+            end
+        end
+    end
+
+    % kernel2D is used for 2D filter to smooth SWI
+    kernel2D = ...
+    [   0.0073    0.0208    0.0294    0.0208    0.0073;
+        0.0208    0.0589    0.0833    0.0589    0.0208;
+        0.0294    0.0833    0.1179    0.0833    0.0294;
+        0.0208    0.0589    0.0833    0.0589    0.0208;
+        0.0073    0.0208    0.0294    0.0208    0.0073;];
+
+    if newIQ == 1  % Need to replot focus IQ data after changing ROI
+        assignin('base','newIQ',0);
+
+        axisChannel = linspace(ROIpos(1),ROIpos(1)+ROIpos(3),Width);
+        axisDepth   = linspace(ROIpos(2),ROIpos(2)+ROIpos(4),Depth);
+
+        IQ3 = IQBuffer(:,:,1,3); IQ4 = IQBuffer(:,:,1,4);
+
+        ImMean = (imag(IQ3(ROILA)) + imag(IQ4(ROILA)))/2;
+        ReMean = (real(IQ3(ROILA)) + real(IQ4(ROILA)))/2;
+        Im = (imag(IQ3(ROILA))-ImMean) .* (real(IQ4(ROILA))-ReMean) - ...
+            (imag(IQ4(ROILA))-ImMean) .* (real(IQ3(ROILA))-ReMean);
+        Re = (imag(IQ3(ROILA))-ImMean) .* (imag(IQ4(ROILA))-ImMean) + ...
+            (real(IQ3(ROILA))-ReMean) .* (real(IQ4(ROILA))-ReMean);
+        Power = reshape((Im .* Im + Re .* Re).^0.125,Depth,Width);
+        buffer = filter2(Power,kernel2D,'full');
+        bufferS = size(buffer);
+        ind1 = (bufferS(1)-Depth)/2;
+        ind2 = (bufferS(2)-Width)/2;
+        Power = rot90(buffer(ind1+1:end-ind1,ind2+1:end-ind2),2);
+        figure(SWIfigHandle), if ishandle(myHandle), delete(myHandle); end
+        maxP = max(Power(:));
+        myHandle = imagesc(axisChannel,axisDepth,Power,[0 0.9*maxP]);
+        title('Shear Wave Visualization with L7-4','FontSize',14,'Fontweight','bold');
+        xlabel('Wavelength','FontSize',12,'Fontweight','bold');
+        ylabel('Wavelength','FontSize',12,'Fontweight','bold');
+        set(gca,'FontSize',12,'Fontweight','bold');
+        axis tight equal, colormap('gray')
+        MovieData(:,:,1) = Power;
+        assignin('base','SWIimageHandle',myHandle);
+
+        assignin('base','axisChannel',axisChannel);
+        assignin('base','axisDepth',axisDepth);
+    end
+
+    caxis(get(SWIfigHandle,'currentAxes'),[50,powermax]);
+    % The size of IQData here is [nRows, nCols, nFrames, nPages]
+    for i = 2:na-1 % for all combinations of 2 pages
+        IQ1 = IQBuffer(:,:,1,i); IQ2 = IQBuffer(:,:,1,i+1);
+        ImMean = (imag(IQ1(ROILA)) + imag(IQ2(ROILA)))/2;
+        ReMean = (real(IQ1(ROILA)) + real(IQ2(ROILA)))/2;
+        Im = (imag(IQ1(ROILA))-ImMean) .* (real(IQ2(ROILA))-ReMean) - ...
+            (imag(IQ2(ROILA))-ImMean) .* (real(IQ1(ROILA))-ReMean);
+        Re = (imag(IQ1(ROILA))-ImMean) .* (imag(IQ2(ROILA))-ImMean) + ...
+            (real(IQ1(ROILA))-ReMean) .* (real(IQ2(ROILA))-ReMean);
+        Power = reshape((Im .* Im + Re .* Re).^0.125,Depth,Width);
+        buffer = filter2(Power,kernel2D,'full');
+        bufferS = size(buffer);
+        ind1 = (bufferS(1)-Depth)/2;
+        ind2 = (bufferS(2)-Width)/2;
+        Power = rot90(buffer(ind1+1:end-ind1,ind2+1:end-ind2),2);
+        set(myHandle,'CData',Power);
+        MovieData(:,:,i) = Power;
+        drawnow
+    end
+% keyboard
+    assignin('base','MovieData',MovieData);
+    if saveIQFlag
+        axisChannel = evalin('base','axisChannel');
+        axisDepth = evalin('base','axisDepth');
+
+        SW.Trans          = Trans;
+        SW.Receive        = Receive;
+        SW.Resource       = Resource;
+        SW.TX             = TX;
+        SW.SWIROI         = SWIROI;
+        SW.ROIpos         = ROIpos;
+        SW.axisChannel    = axisChannel;
+        SW.axisDepth      = axisDepth;
+        SW.PData          = PData;
+        SW.SeqControl     = SeqControl;
+%         s=size(IQBuffer);
+%         [I,J] = ind2sub([s(1) s(2)],ROILA);
+%         keyboard
+%         IQframes = squeeze(IQBuffer(ROILA,:));
+
+        IQframes=zeros(Depth,Width,size(IQBuffer,4));
+        for nP = 1:size(IQBuffer,4)
+            tmp = IQBuffer(:,:,1,nP);
+            tmp = tmp(ROILA);
+            tmp = reshape(tmp,Depth,Width);
+            IQframes(:,:,nP) = tmp;
+        end
+%         IQframes = reshape(IQframes,Depth,Width);
+        save([saveFileRoot num2str(frIdx) '.mat'], 'IQframes','SW');
+        frIdx = frIdx + 1;
+        assignin('base','frIdx',frIdx);
+        %Pdata
+    end
 end
