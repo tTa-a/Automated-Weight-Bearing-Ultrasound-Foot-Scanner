@@ -216,6 +216,18 @@ for i = 1:Resource.RcvBuffer(1).numFrames
     end
 end
 
+%swe receive? NEWADDITION
+% - Set event specific Receive attributes for each frame.
+for i = 1:SWIFrames
+    startIdx = length(Receive); %may or may not need this line, not sure
+    for j = 1:na  % na acquisitions per frame
+        Receive(na*(i-1)+j+d).callMediaFunc = 1;  % make media move per frame
+        Receive(na*(i-1)+j+d).bufnum = 2;
+        Receive(na*(i-1)+j+d).framenum = i;
+        Receive(na*(i-1)+j+d).acqNum = j;
+    end
+end
+
 % Specify TGC Waveform structure.
 TGC.CntrlPts = [51,245,410,475,549,659,736,791];
 TGC.rangeMax = P.endDepth;
