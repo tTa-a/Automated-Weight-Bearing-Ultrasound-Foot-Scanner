@@ -233,7 +233,7 @@ for i = 1:Resource.RcvBuffer(1).numFrames
 end
 
 % SWE Receive setup - NEWADDITION
-numBmodeReceives = P.numRays * Resource.RcvBuffer(1).numFrames; % total B‑mode receives
+
 for i = 1:SWIFrames
     startIdx = numBmodeReceives + (i-1)*na;
     for j = 1:na
@@ -260,6 +260,7 @@ Recon = struct('senscutoff', 0.6, ...
                'RINums',(1:P.numRays));
 
 % Define ReconInfo structures.
+numBmodeReceives = P.numRays * Resource.RcvBuffer(1).numFrames; % total B‑mode receives
 ReconInfo = repmat(struct('mode', 'accumIQ', ...  % default is to accumulate IQ data.
                    'Pre',[],...
                    'Post',[],...
@@ -350,7 +351,21 @@ Process(4).method = 'processIQ';
 %                         'srcframenum',1, ...
 %                         'dstbuffer','SWEprocessed'};
 Process(4).Parameters = {'srcbuffer','inter',...
-    'srcbufnum',1,...
+    'srcbufnum',2,...
+    'srcframenum',1,...
+    'dstbuffer','none'};
+
+Process(5).classname = 'External';
+Process(5).method = 'processIQ';
+Process(5).Parameters = {'srcbuffer','inter',...
+    'srcbufnum',2,...
+    'srcframenum',1,...
+    'dstbuffer','none'};
+
+Process(6).classname = 'External';
+Process(6).method = 'saveIQ_SWE';
+Process(6).Parameters = {'srcbuffer','inter',...
+    'srcbufnum',2,...
     'srcframenum',1,...
     'dstbuffer','none'};
 
@@ -372,18 +387,22 @@ SeqControl(5).argument = 1;
 nsc = length(SeqControl)+1;
 
 %SWE SeqControls - NEWADDITION
+nsc = length(SeqControl)+1;
 SeqControl(nsc).command = 'setTPCProfile';
 SeqControl(nsc).condition = 'immediate';
 SeqControl(nsc).argument = 1;
+TPCprofile1 = nsc;  % store index
 nsc = nsc+1;
 
 SeqControl(nsc).command = 'setTPCProfile';
 SeqControl(nsc).condition = 'immediate';
 SeqControl(nsc).argument = 5;
+TPCprofile5 = nsc;  % store index
 nsc = nsc+1;
 
 SeqControl(nsc).command = 'noop';
 SeqControl(nsc).argument = 100000; % 100ms charging
+noopCharge = nsc;   % store index
 nsc = nsc+1;
 
 SeqControl(nsc).command = 'timeToNextAcq';
@@ -540,7 +559,7 @@ for motStep = 1:nSteps
     Event(n).rcv = 0;
     Event(n).recon = 0;
     Event(n).process = 0;
-    Event(n).seqControl = nsc-7; % setTPCProfile(5)
+    Event(n).seqControl = TPCprofile5; 
     n = n+1;
     
     Event(n).info = 'Charge cap';
@@ -548,7 +567,7 @@ for motStep = 1:nSteps
     Event(n).rcv = 0;
     Event(n).recon = 0;
     Event(n).process = 0;
-    Event(n).seqControl = nsc-6; % noop (100ms)
+    Event(n).seqControl = noopCharge; % noop (100ms)
     n = n+1;
     
     % Push transmit
@@ -714,9 +733,11 @@ UI(6).Callback = text2cell('%ButtonScanCallback(hObject,eventdata)');
 UI(7).Control = {'UserB6','Style','VsPushButton','Label','Start SWE Scan'};
 UI(7).Callback = text2cell('%ButtonSWEScanCallback(hObject,eventdata)');
 
-EF(1).Function = vsv.seq.function.ExFunctionDef('UIControl', @UIControl);
+%EF(1).Function = vsv.seq.function.ExFunctionDef('UIControl', @UIControl);
 EF(2).Function = vsv.seq.function.ExFunctionDef('movemotor', @movemotor);
 EF(3).Function = vsv.seq.function.ExFunctionDef('saveIQ', @saveIQ);
+EF(4).Function = vsv.seq.function.ExFunctionDef('processIQ', @processIQ);
+EF(5).Function = vsv.seq.function.ExFunctionDef('saveIQ_SWE', @saveIQ_SWE);
 
 % Save all the structures to a .mat file.
 % save('MatFiles/L11-4vWideBeam');
@@ -767,14 +788,14 @@ assignin('base','P',P);
 
 PData = evalin('base','PData');
 PData.Size(1) = ceil((P.endDepth-P.startDepth)/PData.PDelta(3));
-PData.Region = repmat(struct('Shape',struct( ...
+PData(1).Region = repmat(struct('Shape',struct( ...
                     'Name','Rectangle',...
                     'Position',[0,0,P.startDepth],...
                     'width',Trans.spacing*(P.numTx-12),...
                     'height',P.endDepth-P.startDepth)),1,P.numRays);
 TxOrgX = (-63.5*Trans.spacing):(127*Trans.spacing/(P.numRays-1)):(63.5*Trans.spacing);
 for n = 1:P.numRays, PData(1).Region(n).Shape.Position(1) = TxOrgX(n); end
-PData.Region = computeRegions(PData);
+PData(1).Region = computeRegions(PData);
 assignin('base','PData',PData);
 % Update TXPD data of TX structures.
 TX = evalin('base','TX');
