@@ -232,6 +232,7 @@ for i = 1:Resource.RcvBuffer(1).numFrames
     end
 end
 
+numBmodeReceives = P.numRays * Resource.RcvBuffer(1).numFrames; % total B‑mode receives
 % SWE Receive setup - NEWADDITION
 
 for i = 1:SWIFrames
@@ -260,7 +261,7 @@ Recon = struct('senscutoff', 0.6, ...
                'RINums',(1:P.numRays));
 
 % Define ReconInfo structures.
-numBmodeReceives = P.numRays * Resource.RcvBuffer(1).numFrames; % total B‑mode receives
+
 ReconInfo = repmat(struct('mode', 'accumIQ', ...  % default is to accumulate IQ data.
                    'Pre',[],...
                    'Post',[],...
@@ -344,16 +345,16 @@ Process(3).Parameters = {'srcbuffer','inter',...
     'dstbuffer','none'};
 
 % NEWADDITION
-Process(4).classname = 'External';
-Process(4).method = 'processIQ';
-%Process(4).Parameters = {'srcbuffer','SWE', ...
-%                         'srcbufnum',1, ...
-%                         'srcframenum',1, ...
-%                         'dstbuffer','SWEprocessed'};
-Process(4).Parameters = {'srcbuffer','inter',...
-    'srcbufnum',2,...
-    'srcframenum',1,...
-    'dstbuffer','none'};
+%Process(4).classname = 'External';
+%Process(4).method = 'processIQ';
+%%Process(4).Parameters = {'srcbuffer','SWE', ...
+%%                         'srcbufnum',1, ...
+%%                        'srcframenum',1, ...
+%%                         'dstbuffer','SWEprocessed'};
+%Process(4).Parameters = {'srcbuffer','inter',...
+%    'srcbufnum',2,...
+%    'srcframenum',1,...
+%    'dstbuffer','none'};
 
 Process(5).classname = 'External';
 Process(5).method = 'processIQ';
@@ -767,58 +768,54 @@ return
 
 
 %RangeChangeCallback - Range change
-simMode = evalin('base','Resource.Parameters.simulateMode');
-% No range change if in simulate mode 2.
-if simMode == 2
-    set(hObject,'Value',evalin('base','P.endDepth'));
-    return
-end
-Trans = evalin('base','Trans');
-Resource = evalin('base','Resource');
-scaleToWvl = Trans.frequency/(Resource.Parameters.speedOfSound/1000);
-
-P = evalin('base','P');
-P.endDepth = UIValue;
-if isfield(Resource.DisplayWindow(1),'AxesUnits')&&~isempty(Resource.DisplayWindow(1).AxesUnits)
-    if strcmp(Resource.DisplayWindow(1).AxesUnits,'mm')
-        P.endDepth = UIValue*scaleToWvl;
+function RangeChangeCallback(~,~,UIValue)
+    simMode = evalin('base','Resource.Parameters.simulateMode');
+    if simMode == 2
+        set(hObject,'Value',evalin('base','P.endDepth'));
+        return
     end
+    Trans = evalin('base','Trans');
+    Resource = evalin('base','Resource');
+    scaleToWvl = Trans.frequency/(Resource.Parameters.speedOfSound/1000);
+    P = evalin('base','P');
+    P.endDepth = UIValue;
+    if isfield(Resource.DisplayWindow(1),'AxesUnits')&&~isempty(Resource.DisplayWindow(1).AxesUnits)
+        if strcmp(Resource.DisplayWindow(1).AxesUnits,'mm')
+            P.endDepth = UIValue*scaleToWvl;
+        end
+    end
+    assignin('base','P',P);
+    PData = evalin('base','PData');
+    PData(1).Size(1) = ceil((P.endDepth-P.startDepth)/PData(1).PDelta(3));
+    PData(1).Region = repmat(struct('Shape',struct( ...
+        'Name','Rectangle',...
+        'Position',[0,0,P.startDepth],...
+        'width',Trans.spacing*(P.numTx-12),...
+        'height',P.endDepth-P.startDepth)),1,P.numRays);
+    TxOrgX = (-63.5*Trans.spacing):(127*Trans.spacing/(P.numRays-1)):(63.5*Trans.spacing);
+    for n = 1:P.numRays, PData(1).Region(n).Shape.Position(1) = TxOrgX(n); end
+    PData(1).Region = computeRegions(PData(1));
+    assignin('base','PData',PData);
+    TX = evalin('base','TX');
+    for i = 1:size(TX,2)
+        TX(i).TXPD = computeTXPD(TX(i),PData(1));
+    end
+    assignin('base','TX',TX);
+    Receive = evalin('base', 'Receive');
+    maxAcqLength = ceil(sqrt(P.endDepth^2 + ((Trans.numelements-1)*Trans.spacing)^2));
+    for i = 1:size(Receive,2)
+        Receive(i).endDepth = maxAcqLength;
+    end
+    assignin('base','Receive',Receive);
+    evalin('base','TGC.rangeMax = P.endDepth;');
+    evalin('base','TGC.Waveform = computeTGCWaveform(TGC);');
+    evalin('base','Resource.DisplayWindow(1).Position(4) = ceil(PData(1).Size(1)*PData(1).PDelta(3)/Resource.DisplayWindow(1).pdelta);');
+    Control = evalin('base','Control');
+    Control.Command = 'update&Run';
+    Control.Parameters = {'PData','InterBuffer','ImageBuffer','TX','Receive','Recon','TGC','DisplayWindow'};
+    assignin('base','Control', Control);
+    assignin('base', 'action', 'displayChange');
 end
-assignin('base','P',P);
-
-PData = evalin('base','PData');
-PData.Size(1) = ceil((P.endDepth-P.startDepth)/PData.PDelta(3));
-PData(1).Region = repmat(struct('Shape',struct( ...
-                    'Name','Rectangle',...
-                    'Position',[0,0,P.startDepth],...
-                    'width',Trans.spacing*(P.numTx-12),...
-                    'height',P.endDepth-P.startDepth)),1,P.numRays);
-TxOrgX = (-63.5*Trans.spacing):(127*Trans.spacing/(P.numRays-1)):(63.5*Trans.spacing);
-for n = 1:P.numRays, PData(1).Region(n).Shape.Position(1) = TxOrgX(n); end
-PData(1).Region = computeRegions(PData);
-assignin('base','PData',PData);
-% Update TXPD data of TX structures.
-TX = evalin('base','TX');
-for i = 1:size(TX,2)
-    TX(i).TXPD = computeTXPD(TX(i),PData);
-end
-assignin('base','TX',TX);
-% Update Receive structures.
-Receive = evalin('base', 'Receive');
-maxAcqLength = ceil(sqrt(P.endDepth^2 + ((Trans.numelements-1)*Trans.spacing)^2));
-for i = 1:size(Receive,2)
-    Receive(i).endDepth = maxAcqLength;
-end
-assignin('base','Receive',Receive);
-evalin('base','TGC.rangeMax = P.endDepth;');
-evalin('base','TGC.Waveform = computeTGCWaveform(TGC);');
-evalin('base','Resource.DisplayWindow(1).Position(4) = ceil(PData.Size(1)*PData.PDelta(3)/Resource.DisplayWindow(1).pdelta);');
-Control = evalin('base','Control');
-Control.Command = 'update&Run';
-Control.Parameters = {'PData','InterBuffer','ImageBuffer','TX','Receive','Recon','TGC','DisplayWindow'};
-assignin('base','Control', Control);
-assignin('base', 'action', 'displayChange');
-return
 %RangeChangeCallback
 
 %PeakCutOffCallback
@@ -1202,6 +1199,11 @@ function moveFocus(varargin)
         TXupdate(msg,'TX');
 
     end
+end
+
+
+function initiationApp()
+    disp('Motor initialization placeholder');
 end
 
 function moveROI(varargin)
