@@ -294,8 +294,7 @@ Process(2).Parameters = {'srcbuffer','none'};
 
 Process(3).classname = 'External';
 Process(3).method = 'saveIQ';
-Process(3).method = 'processIQ'; %NEWADDITION
-Process(3).Parameters = {'srcbuffer','inter',... % name of buffer to process.
+Process(3).Parameters = {'srcbuffer','inter',...
     'srcbufnum',1,...
     'srcframenum',1,...
     'dstbuffer','none'};
@@ -303,10 +302,14 @@ Process(3).Parameters = {'srcbuffer','inter',... % name of buffer to process.
 % NEWADDITION
 Process(4).classname = 'External';
 Process(4).method = 'processIQ';
-Process(4).Parameters = {'srcbuffer','SWE', ...
-                         'srcbufnum',1, ...
-                         'srcframenum',1, ...
-                         'dstbuffer','SWEprocessed'};
+%Process(4).Parameters = {'srcbuffer','SWE', ...
+%                         'srcbufnum',1, ...
+%                         'srcframenum',1, ...
+%                         'dstbuffer','SWEprocessed'};
+Process(4).Parameters = {'srcbuffer','inter',...
+    'srcbufnum',1,...
+    'srcframenum',1,...
+    'dstbuffer','none'};
 
 % Specify SeqControl structure arrays.
 %  - Jump back to Flash start.
@@ -450,7 +453,7 @@ for motStep = 1:nSteps
 end
 
 %SWE SCAN - NEWADDITION
-% ================= SWE SCAN START =================
+%
 nStartSWE = n;   % NEW SWE START EVENT
 startIdx = P.numRays * Resource.RcvBuffer(1).numFrames;
 
@@ -462,13 +465,28 @@ for motStep = 1:nSteps
     Event(n).rcv = 0;
     Event(n).recon = 0;
     Event(n).process = 0;
+    Event(n).seqControl = 0;
     n = n + 1;
+
+%delay after push, don't think we need this though NEWADDITION
+%    Event(n).info = 'Push Delay';
+%    Event(n).tx = 0;
+%    Event(n).rcv = 0;
+%    Event(n).recon = 0;
+%    Event(n).process = 0;
+
+%    SeqControl(nsc).command = 'timeToNextAcq';
+%    SeqControl(nsc).argument = 5000; % 5 ms
+
+%    Event(n).seqControl = nsc;
+%    nsc = nsc + 1;
+%    n = n + 1;
 
     % --- TRACKING ---
     for j = 1:na
         Event(n).info = 'Track';
         Event(n).tx = 1;
-        Event(n).rcv = startIdx + j;
+        Event(n).rcv = length(Receive) - na + j;
         Event(n).recon = 0;
         Event(n).process = 0;
         n = n + 1;
@@ -491,7 +509,7 @@ for motStep = 1:nSteps
     Event(n).tx = 0;
     Event(n).rcv = 0;
     Event(n).recon = 2;
-    Event(n).process = 3;
+    Event(n).process = 4;   % SWE processing
     n = n + 1;
 
     if motStep > 1
