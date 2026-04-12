@@ -445,6 +445,7 @@ SeqControl(nsc).argument = nStartAcqFlash;
 
 n = n+1;
 nsc = nsc+1;
+for motStep = 1:nSteps
 
 %% Shear Wave Imaging starts from event(nStartPush)
 nStartPush = n;
@@ -524,6 +525,26 @@ for i = 1:SWIFrames
     Event(n).seqControl = 8;
     n = n+1;
 
+end
+
+if motStep>1 % Collect data on first position without moving motor
+        %% Move Motor
+        Event(n).info = 'Move Motor';
+        Event(n).tx = 0;
+        Event(n).rcv = 0;
+        Event(n).recon = 0;
+        Event(n).process = 2; % Call Move Motor Function movemotor
+        Event(n).seqControl = 0;
+        n = n+1;
+    end
+
+Event(n).info    = 'Save IQ';
+    Event(n).tx      = 0;
+    Event(n).rcv     = 0;
+    Event(n).recon   = 0;
+    Event(n).process = 3;
+    Event(n).seqControl = 0;
+    n = n+1;
 end
 
 Event(n).info = 'Jump back';
@@ -679,6 +700,10 @@ UI(15).Control = VsSliderControl('LocationCode','UserB3','Label','Push cycles',.
 
 EF(1).Function = vsv.seq.function.ExFunctionDef('UIControl', @UIControl);
 EF(2).Function = vsv.seq.function.ExFunctionDef('processIQ', @processIQ);
+
+%NEWADDITION
+EF(2).Function = vsv.seq.function.ExFunctionDef('movemotor', @movemotor);
+EF(3).Function = vsv.seq.function.ExFunctionDef('saveIQ', @saveIQ);
 
 % ROI position
 ROIpos = [TX(2).focusX-SWIROI.width/2,TX(2).focus-SWIROI.height/2,SWIROI.width,SWIROI.height];
@@ -1624,4 +1649,118 @@ function moveMouse(varargin)
         set(ROIHandle.Parent.Parent,'pointer','arrow');
     end
 
+end
+
+function movemotor()
+    file = evalin('base','file');
+    scan = evalin('base','scan');
+    scanIdx        = scan.scanIdx;
+    nSteps         = scan.nSteps;
+    stepMM         = scan.stepMM;
+    if scanIdx<=nSteps
+            motormove(1,stepMM);
+    end
+% keyboard
+    if scan.scanIdx == scan.nSteps
+        %% Check if End of Scan; IF so, return to Flash only imaging (should returnt motor also to start positoon)
+        nStart  = evalin('base','nStartFlashOnly');%evalin('base','nStartPush');%
+        Control = evalin('base','Control');
+        if isempty(Control(1).Command), n=1; else n=length(Control)+1; end
+        Control(n).Command = 'set&Run';
+        Control(n).Parameters = {'Parameters',1,'startEvent',nStart};
+        evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
+        assignin('base','Control',Control);
+    end
+
+    pause(0.15);
+end
+
+
+function saveIQ(IBuffer, QBuffer)
+    scan           = evalin('base','scan');
+    scanIdx        = scan.scanIdx;
+    nSteps         = scan.nSteps;
+    scanDisMM      = scan.scanDisMM;
+    stepMM         = scan.stepMM;
+
+    saveIQFlag     = evalin('base','saveIQFlag');
+    file           = evalin('base','file');
+    saveFileRoot2  = file.saveFileRoot2; 
+    savepath2      = file.savepath2; 
+    dircheck       = file.dircheck;
+
+    sprintf('%d of %d steps (%3.3f of %3.3f mm)', scanIdx, nSteps,stepMM*(scanIdx-1),scanDisMM)
+%     IQBuffer       = complex(IBuffer, QBuffer); % VTS-1142 separate I and Q buffers
+% 
+%     IQBuffer_Pre   = IQBuffer(:,:,:,1:na);
+%     IQBuffer_Post  = IQBuffer(:,:,:,na+1:2*na);
+%     TS            = datevec(datetime);
+    if scanIdx<=nSteps
+        if scanIdx==1
+            Trans           = evalin('base','Trans');
+            Receive         = evalin('base','Receive');
+            Resource        = evalin('base','Resource');
+            PData           = evalin('base','PData');
+            TX              = evalin('base','TX');
+            SeqControl      = evalin('base','SeqControl');
+            TPC             = evalin('base','TPC');
+            c               = Resource.Parameters.speedOfSound*1e-3; % mm/us
+            Trans.lambda    = c/Trans.frequency; % mm
+
+            % Get Verasonics beamformed IQ Azimuth coords
+            VBFxL   = Trans.lambda*(PData(1).Size(2)-1)*PData(1).PDelta(1);   % [mm] Beamformed image lateral width 'X'
+            VBFx0MM = Trans.lambda*PData(1).Origin(1);                        % [mm] Beamformed image start coordinate (lateral, X)
+            VBFxfMM = VBFx0MM + VBFxL;                                                  % [mm] Beamformed image end coordinate (lateral, X)
+            xMM     = VBFx0MM:Trans.lambda*PData(1).PDelta(1):VBFxfMM;  % mm  
+
+            % Get Verasonics beamformed IQ depth coords
+            VBFzL   = Trans.lambda*(PData(1).Size(1)-1)*PData(1).PDelta(3);   % [mm] Beamformed image total depth 'Z'   
+            VBFz0MM = Trans.lambda*PData(1).Origin(3);                           % [mm] Beamformed image start coordinate (depth, Z)
+            VBFzfMM = VBFz0MM + VBFzL;                                                   % [mm] Beamformed image end coordinate (depth, Z)                                   
+            zMM  = (VBFz0MM:Trans.lambda*PData(1).PDelta(3):VBFzfMM);  % mm
+            tUS  = zMM/c;                                              % uSec
+    
+            if ~dircheck && ~exist(savepath2,'dir')
+                mkdir(savepath2);
+                dircheck = 1;
+                file.dircheck = dircheck;
+                assignin('base','dircheck',dircheck);
+            end
+            save([saveFileRoot2 '_Param.mat'],'Trans','c','xMM', 'zMM','tUS','Receive',...
+                'TX','SeqControl','TPC','scan','file');
+        end
+        fIdxStr   = sprintf('_%.3d',scanIdx);
+        fSaveName = [saveFileRoot2 fIdxStr];
+%         keyboard
+        % Save Real
+        fid = fopen([fSaveName '_IData.bin'],'wb');
+        fwrite(fid,IBuffer,'int32');
+        fclose(fid);
+    
+        % Save Imag
+        fid = fopen([fSaveName '_QData.bin'],'wb');
+        fwrite(fid,QBuffer,'int32');
+        fclose(fid);
+        scan.scanIdx = scan.scanIdx + 1;
+    %     keyboard
+    end
+    if scanIdx==nSteps % Move motor back to Start Position
+%         keyboard
+        UI           = evalin('base','UI');
+        set(UI(6).handle,'BackgroundColor', [1 0 0]);
+        scan.scanIdx = 1; % Reset Scan Index Counter
+
+        % Get New Timestamp and Saving File / Path In Case Scan is Repeated with Button Press
+        dateStamp = datevec(datetime); % Year, Month, Day, Hour, Minute, Second
+        deteStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(2), dateStamp(3), dateStamp(1)-2000); % mm dd yy
+        timeStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(4), dateStamp(5), round(dateStamp(6))); % hr min sec
+
+        file.savepath2     = [sprintf('%s%s',file.savepath, deteStr) '\'];
+        file.fname2        = sprintf('%s-%s_%s',file.fname, deteStr, timeStr); % sprintf('%s-%s_%s',fname, deteStr, timeStr);
+        file.savepath2     = [file.savepath2 file.fname2 '\']; % Make internal directory
+        file.saveFileRoot2 = [file.savepath2 file.fname2]; 
+        file.dircheck      = 0;     % flag to check if directory exists before saving
+        assignin('base','file',file);
+    end
+    assignin('base','scan',scan);
 end
