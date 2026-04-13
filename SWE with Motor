@@ -743,11 +743,18 @@ save(['MatFiles/',filename]);
 % Matlab workspace, it will load and run that file instead of prompting the
 % user for the file to be used):
 
-%NEWADDITION
-scan.scanDisMM  = scanDisMM; % mm
-scan.stepMM     = stepMM; % mm
-scan.nSteps     = nSteps;
-scan.scanIdx    = scanIdx; % Initialize Scan Step #--will change during scan
+%NEWADDITION - this one's in the other script
+%scan.scanDisMM  = scanDisMM; % mm
+%scan.stepMM     = stepMM; % mm
+%scan.nSteps     = nSteps;
+%scan.scanIdx    = scanIdx; % Initialize Scan Step #--will change during scan
+
+scan.scanIdx   = 1;
+scan.nSteps    = nSteps;
+scan.stepMM    = stepMM;
+scan.scanDisMM = scanDisMM;
+
+assignin('base','scan',scan);
 
 VSX
 
@@ -939,37 +946,7 @@ function replayIQ(varargin)
 
     end
 
-function saveIQ(varargin)
-    UI = evalin('base','UI');
-    freeze          = evalin('base','freeze');
 
-    if evalin('base','exist(''IQMovie'',''var'')')
-        if freeze
-            assignin('base','replay','off');
-            set(UI(8).handle,'Visible','on');
-            set(UI(9).handle,'Visible','off');
-            IQMovie = evalin('base','IQMovie');
-            loopfps = evalin('base','loopfps');
-            [fn,pn,filterindex] = uiputfile('*.mp4','Save Shearwave movie as');
-            if ~isequal(fn,0) % fn will be zero if user hits cancel
-                fn = strrep(fullfile(pn,fn), '''', '''''');
-
-                vidObj = VideoWriter(fn,'MPEG-4');
-                vidObj.Quality = 100;
-                vidObj.FrameRate = loopfps;
-                open(vidObj);
-                writeVideo(vidObj,IQMovie);
-                close(vidObj);
-
-                fprintf('The shearwave movie has been saved at %s \n',fn);
-            else
-                disp('The shearwave movie is not saved.');
-            end
-        end
-    else
-        msgbox('replay is not finished!');
-    end
-end
 
 function ROIWidthCallback(~,~,UIValue)
 %ROI Width change
@@ -1249,38 +1226,7 @@ function processIQ(IBuffer, QBuffer)
     end
 % keyboard
     assignin('base','MovieData',MovieData);
-    if saveIQFlag
-        axisChannel = evalin('base','axisChannel');
-        axisDepth = evalin('base','axisDepth');
-
-        SW.Trans          = Trans;
-        SW.Receive        = Receive;
-        SW.Resource       = Resource;
-        SW.TX             = TX;
-        SW.SWIROI         = SWIROI;
-        SW.ROIpos         = ROIpos;
-        SW.axisChannel    = axisChannel;
-        SW.axisDepth      = axisDepth;
-        SW.PData          = PData;
-        SW.SeqControl     = SeqControl;
-%         s=size(IQBuffer);
-%         [I,J] = ind2sub([s(1) s(2)],ROILA);
-%         keyboard
-%         IQframes = squeeze(IQBuffer(ROILA,:));
-
-        IQframes=zeros(Depth,Width,size(IQBuffer,4));
-        for nP = 1:size(IQBuffer,4)
-            tmp = IQBuffer(:,:,1,nP);
-            tmp = tmp(ROILA);
-            tmp = reshape(tmp,Depth,Width);
-            IQframes(:,:,nP) = tmp;
-        end
-%         IQframes = reshape(IQframes,Depth,Width);
-        save([saveFileRoot num2str(frIdx) '.mat'], 'IQframes','SW');
-        frIdx = frIdx + 1;
-        assignin('base','frIdx',frIdx);
-        %Pdata
-    end
+%NEWADDITION -removed a block here (saveIQFlag)
 end
 
 %% Other external functions used in callback functions
@@ -1676,15 +1622,30 @@ function moveMouse(varargin)
 
 end
 
+%NEWADDITION
+%function movemotor()
+%    file = evalin('base','file');
+%    scan = evalin('base','scan');
+%    scanIdx        = scan.scanIdx;
+%    nSteps         = scan.nSteps;
+%    stepMM         = scan.stepMM;
+%    if scanIdx<=nSteps
+%            motormove(1,stepMM);
+%    end
 function movemotor()
-    file = evalin('base','file');
+
     scan = evalin('base','scan');
-    scanIdx        = scan.scanIdx;
-    nSteps         = scan.nSteps;
-    stepMM         = scan.stepMM;
-    if scanIdx<=nSteps
-            motormove(1,stepMM);
+
+    if scan.scanIdx < scan.nSteps
+        motormove(1, scan.stepMM);
+        scan.scanIdx = scan.scanIdx + 1;
     end
+
+    assignin('base','scan',scan);
+    pause(0.15);
+
+end
+
 % keyboard
     if scan.scanIdx == scan.nSteps
         %% Check if End of Scan; IF so, return to Flash only imaging (should returnt motor also to start positoon)
@@ -1702,90 +1663,25 @@ end
 
 
 function saveIQ(IBuffer, QBuffer)
-    scan           = evalin('base','scan');
-    scanIdx        = scan.scanIdx;
-    nSteps         = scan.nSteps;
-    scanDisMM      = scan.scanDisMM;
-    stepMM         = scan.stepMM;
 
-    saveIQFlag     = evalin('base','saveIQFlag');
-    file           = evalin('base','file');
-    saveFileRoot2  = file.saveFileRoot2; 
-    savepath2      = file.savepath2; 
-    dircheck       = file.dircheck;
+    scan = evalin('base','scan');
+    file = evalin('base','file');
 
-    sprintf('%d of %d steps (%3.3f of %3.3f mm)', scanIdx, nSteps,stepMM*(scanIdx-1),scanDisMM)
-%     IQBuffer       = complex(IBuffer, QBuffer); % VTS-1142 separate I and Q buffers
-% 
-%     IQBuffer_Pre   = IQBuffer(:,:,:,1:na);
-%     IQBuffer_Post  = IQBuffer(:,:,:,na+1:2*na);
-%     TS            = datevec(datetime);
-    if scanIdx<=nSteps
-        if scanIdx==1
-            Trans           = evalin('base','Trans');
-            Receive         = evalin('base','Receive');
-            Resource        = evalin('base','Resource');
-            PData           = evalin('base','PData');
-            TX              = evalin('base','TX');
-            SeqControl      = evalin('base','SeqControl');
-            TPC             = evalin('base','TPC');
-            c               = Resource.Parameters.speedOfSound*1e-3; % mm/us
-            Trans.lambda    = c/Trans.frequency; % mm
+    scanIdx = scan.scanIdx;
 
-            % Get Verasonics beamformed IQ Azimuth coords
-            VBFxL   = Trans.lambda*(PData(1).Size(2)-1)*PData(1).PDelta(1);   % [mm] Beamformed image lateral width 'X'
-            VBFx0MM = Trans.lambda*PData(1).Origin(1);                        % [mm] Beamformed image start coordinate (lateral, X)
-            VBFxfMM = VBFx0MM + VBFxL;                                                  % [mm] Beamformed image end coordinate (lateral, X)
-            xMM     = VBFx0MM:Trans.lambda*PData(1).PDelta(1):VBFxfMM;  % mm  
+    fprintf('Saving step %d / %d\n', scanIdx, scan.nSteps);
 
-            % Get Verasonics beamformed IQ depth coords
-            VBFzL   = Trans.lambda*(PData(1).Size(1)-1)*PData(1).PDelta(3);   % [mm] Beamformed image total depth 'Z'   
-            VBFz0MM = Trans.lambda*PData(1).Origin(3);                           % [mm] Beamformed image start coordinate (depth, Z)
-            VBFzfMM = VBFz0MM + VBFzL;                                                   % [mm] Beamformed image end coordinate (depth, Z)                                   
-            zMM  = (VBFz0MM:Trans.lambda*PData(1).PDelta(3):VBFzfMM);  % mm
-            tUS  = zMM/c;                                              % uSec
-    
-            if ~dircheck && ~exist(savepath2,'dir')
-                mkdir(savepath2);
-                dircheck = 1;
-                file.dircheck = dircheck;
-                assignin('base','dircheck',dircheck);
-            end
-            save([saveFileRoot2 '_Param.mat'],'Trans','c','xMM', 'zMM','tUS','Receive',...
-                'TX','SeqControl','TPC','scan','file');
-        end
-        fIdxStr   = sprintf('_%.3d',scanIdx);
-        fSaveName = [saveFileRoot2 fIdxStr];
-%         keyboard
-        % Save Real
-        fid = fopen([fSaveName '_IData.bin'],'wb');
-        fwrite(fid,IBuffer,'int32');
-        fclose(fid);
-    
-        % Save Imag
-        fid = fopen([fSaveName '_QData.bin'],'wb');
-        fwrite(fid,QBuffer,'int32');
-        fclose(fid);
-        scan.scanIdx = scan.scanIdx + 1;
-    %     keyboard
-    end
-    if scanIdx==nSteps % Move motor back to Start Position
-%         keyboard
-        UI           = evalin('base','UI');
-        set(UI(6).handle,'BackgroundColor', [1 0 0]);
-        scan.scanIdx = 1; % Reset Scan Index Counter
+    fIdxStr   = sprintf('_%.3d',scanIdx);
+    fSaveName = [file.saveFileRoot2 fIdxStr];
 
-        % Get New Timestamp and Saving File / Path In Case Scan is Repeated with Button Press
-        dateStamp = datevec(datetime); % Year, Month, Day, Hour, Minute, Second
-        deteStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(2), dateStamp(3), dateStamp(1)-2000); % mm dd yy
-        timeStr   = sprintf('%2.2d%2.2d%2.2d',dateStamp(4), dateStamp(5), round(dateStamp(6))); % hr min sec
+    % Save I
+    fid = fopen([fSaveName '_IData.bin'],'wb');
+    fwrite(fid,IBuffer,'int32');
+    fclose(fid);
 
-        file.savepath2     = [sprintf('%s%s',file.savepath, deteStr) '\'];
-        file.fname2        = sprintf('%s-%s_%s',file.fname, deteStr, timeStr); % sprintf('%s-%s_%s',fname, deteStr, timeStr);
-        file.savepath2     = [file.savepath2 file.fname2 '\']; % Make internal directory
-        file.saveFileRoot2 = [file.savepath2 file.fname2]; 
-        file.dircheck      = 0;     % flag to check if directory exists before saving
-        assignin('base','file',file);
-    end
-    assignin('base','scan',scan);
+    % Save Q
+    fid = fopen([fSaveName '_QData.bin'],'wb');
+    fwrite(fid,QBuffer,'int32');
+    fclose(fid);
+
 end
