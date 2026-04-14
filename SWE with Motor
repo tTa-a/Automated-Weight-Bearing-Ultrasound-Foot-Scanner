@@ -1,4 +1,4 @@
-% Notice:
+%% Notice:
 %   This file is provided by Verasonics to end users as a programming
 %   example for the Verasonics Vantage Research Ultrasound System.
 %   Verasonics makes no claims as to the functionality or intended
@@ -564,7 +564,7 @@ if motStep>1 % Collect data on first position without moving motor
 %    Event(n).process = 3;
 %    Event(n).seqControl = 0;
 %    n = n+1;
-end
+%end
 
 Event(n).info = 'Jump back';
 Event(n).tx = 0;
@@ -1642,12 +1642,11 @@ function movemotor()
     end
 
     assignin('base','scan',scan);
-    pause(0.15);
+%    pause(0.15);
 
-end
 
 % keyboard
-    if scan.scanIdx == scan.nSteps
+  if scan.scanIdx == scan.nSteps
         %% Check if End of Scan; IF so, return to Flash only imaging (should returnt motor also to start positoon)
         nStart  = evalin('base','nStartFlashOnly');%evalin('base','nStartPush');%
         Control = evalin('base','Control');
@@ -1657,7 +1656,6 @@ end
         evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
         assignin('base','Control',Control);
     end
-
     pause(0.15);
 end
 
