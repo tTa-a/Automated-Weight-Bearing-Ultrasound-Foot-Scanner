@@ -345,8 +345,10 @@ Process(3).Parameters = {'srcbuffer','inter',... % name of buffer to process.
 %NEWADDITION
 Process(4).classname = 'External';
 Process(4).method = 'saveIQ';
-Process(4).Parameters = {'srcbuffer','receive', ...
-                         'srcbufnum',2};
+Process(4).Parameters = {'srcbuffer','inter',... % name of buffer to process.
+    'srcbufnum',2,...
+    'srcframenum',1,...
+    'dstbuffer','none'};
 
 %% SeqControl and Events for shearwave generation
 
