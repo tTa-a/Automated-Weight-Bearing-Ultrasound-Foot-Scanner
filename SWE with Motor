@@ -1668,25 +1668,60 @@ function movemotor()
 end
 
 function saveIQ(IBuffer, QBuffer)
-
-    scan = evalin('base','scan');
-    file = evalin('base','file');
-
-    scanIdx = scan.scanIdx;
-
-    fprintf('Saving step %d / %d\n', scanIdx, scan.nSteps);
-
-    fIdxStr   = sprintf('_%.3d',scanIdx);
-    fSaveName = [file.saveFileRoot2 fIdxStr];
-
-    % Save I
-    fid = fopen([fSaveName '_IData.bin'],'wb');
-    fwrite(fid,IBuffer,'int32');
-    fclose(fid);
-
-    % Save Q
-    fid = fopen([fSaveName '_QData.bin'],'wb');
-    fwrite(fid,QBuffer,'int32');
-    fclose(fid);
-
+    % Combine I and Q into complex
+    IQBuffer = complex(IBuffer, QBuffer);
+    
+    % Retrieve required variables from base
+    saveIQFlag   = evalin('base', 'saveIQFlag');
+    if ~saveIQFlag, return; end
+    
+    saveFileRoot = evalin('base', 'saveFileRoot');
+    frIdx        = evalin('base', 'frIdx');
+    PData        = evalin('base', 'PData');
+    SWIROI       = evalin('base', 'SWIROI');
+    ROIpos       = evalin('base', 'ROIpos');
+    Trans        = evalin('base', 'Trans');
+    Receive      = evalin('base', 'Receive');
+    Resource     = evalin('base', 'Resource');
+    TX           = evalin('base', 'TX');
+    SeqControl   = evalin('base', 'SeqControl');
+    axisChannel  = evalin('base', 'axisChannel');
+    axisDepth    = evalin('base', 'axisDepth');
+    
+    % Compute ROI indices and dimensions
+    ROILA = (PData(2).Region.PixelsLA + 1);
+    Depth = floor(SWIROI.height / PData(2).PDelta(3));
+    Width = length(ROILA) / Depth;
+    if mod(Width,1) ~= 0
+        Width = floor(SWIROI.width / PData(2).PDelta(1));
+        Depth = length(ROILA) / Width;
+    end
+    
+    % Extract IQ frames from ROI
+    numPages = size(IQBuffer, 4);
+    IQframes = zeros(Depth, Width, numPages);
+    for nP = 1:numPages
+        tmp = IQBuffer(:,:,1,nP);
+        tmp = tmp(ROILA);
+        IQframes(:,:,nP) = reshape(tmp, Depth, Width);
+    end
+    
+    % Build metadata struct
+    SW.Trans       = Trans;
+    SW.Receive     = Receive;
+    SW.Resource    = Resource;
+    SW.TX          = TX;
+    SW.SWIROI      = SWIROI;
+    SW.ROIpos      = ROIpos;
+    SW.axisChannel = axisChannel;
+    SW.axisDepth   = axisDepth;
+    SW.PData       = PData;
+    SW.SeqControl  = SeqControl;
+    
+    % Save to file
+    save([saveFileRoot num2str(frIdx) '.mat'], 'IQframes', 'SW');
+    
+    % Increment frame index
+    frIdx = frIdx + 1;
+    assignin('base', 'frIdx', frIdx);
 end
