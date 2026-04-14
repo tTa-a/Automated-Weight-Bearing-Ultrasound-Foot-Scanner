@@ -331,7 +331,8 @@ Process(1).Parameters = {'imgbufnum',1,...   % number of buffer to process.
 % EF2 is external function for shearwave visualization
 Process(2).classname = 'External';
 Process(2).method = 'movemotor';
-Process(2).Parameters = {'srcbuffer','none'};
+%Process(2).Parameters = {'srcbuffer','none'};
+Process(2).Parameters = {'scan', scan};
 
 % EF2 is external function for shearwave visualization
 Process(3).classname = 'External';
@@ -1636,7 +1637,8 @@ end
 %    if scanIdx<=nSteps
 %            motormove(1,stepMM);
 %    end
-function movemotor()
+%function movemotor()
+function movemotor(scan)
 
     %scan = evalin('base','scan');
     if isempty(scan)
