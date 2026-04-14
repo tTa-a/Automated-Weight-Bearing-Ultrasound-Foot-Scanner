@@ -553,7 +553,7 @@ if motStep>1 % Collect data on first position without moving motor
         Event(n).tx = 0;
         Event(n).rcv = 0;
         Event(n).recon = 0;
-        Event(n).process = 3; % Call Move Motor Function movemotor
+        Event(n).process = 2; % Call Move Motor Function movemotor
         Event(n).seqControl = 0;
         n = n+1;
     end
@@ -750,6 +750,8 @@ save(['MatFiles/',filename]);
 %scan.nSteps     = nSteps;
 %scan.scanIdx    = scanIdx; % Initialize Scan Step #--will change during scan
 
+file.saveFileRoot = saveFileRoot;
+
 scan = struct();
 scan.scanIdx   = 1;
 scan.nSteps    = nSteps;
@@ -760,6 +762,7 @@ assignin('base','scan',scan);
 
 disp('Scan initialized:');
 disp(scan);
+
 
 VSX
 
@@ -1650,7 +1653,7 @@ function movemotor()
 % keyboard
     if scan.scanIdx == scan.nSteps
         %% Check if End of Scan; IF so, return to Flash only imaging (should returnt motor also to start positoon)
-        nStart  = evalin('base','nStartFlashOnly');%evalin('base','nStartPush');%
+        nStart  = evalin('base','nStartFlash');%evalin('base','nStartPush');%
         Control = evalin('base','Control');
         if isempty(Control(1).Command), n=1; else n=length(Control)+1; end
         Control(n).Command = 'set&Run';
