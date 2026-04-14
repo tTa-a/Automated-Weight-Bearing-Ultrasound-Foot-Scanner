@@ -1638,14 +1638,22 @@ end
 %    end
 function movemotor()
 
-    scan = evalin('base','scan');
+    %scan = evalin('base','scan');
+    if isempty(scan)
+        scan.scanIdx   = 1;
+        scan.nSteps    = evalin('base','nSteps');
+        scan.stepMM    = evalin('base','stepMM');
+        scan.scanDisMM = evalin('base','scanDisMM');
+        
+        disp('Initialized scan inside movemotor');
+    end
 
     if scan.scanIdx < scan.nSteps
         motormove(1, scan.stepMM);
         scan.scanIdx = scan.scanIdx + 1;
     end
 
-    assignin('base','scan',scan);
+%    assignin('base','scan',scan);
 %    pause(0.15);
 
 
@@ -1657,7 +1665,7 @@ function movemotor()
         if isempty(Control(1).Command), n=1; else n=length(Control)+1; end
         Control(n).Command = 'set&Run';
         Control(n).Parameters = {'Parameters',1,'startEvent',nStart};
-        evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
+%        evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
         assignin('base','Control',Control);
     end
     pause(0.15);
