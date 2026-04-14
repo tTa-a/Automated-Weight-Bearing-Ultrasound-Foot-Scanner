@@ -749,12 +749,16 @@ save(['MatFiles/',filename]);
 %scan.nSteps     = nSteps;
 %scan.scanIdx    = scanIdx; % Initialize Scan Step #--will change during scan
 
+scan = struct();
 scan.scanIdx   = 1;
 scan.nSteps    = nSteps;
 scan.stepMM    = stepMM;
 scan.scanDisMM = scanDisMM;
 
 assignin('base','scan',scan);
+
+disp('Scan initialized:');
+disp(scan);
 
 VSX
 
