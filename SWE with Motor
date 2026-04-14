@@ -331,8 +331,8 @@ Process(1).Parameters = {'imgbufnum',1,...   % number of buffer to process.
 % EF2 is external function for shearwave visualization
 Process(2).classname = 'External';
 Process(2).method = 'movemotor';
-%Process(2).Parameters = {'srcbuffer','none'};
-Process(2).Parameters = {'scan', scan};
+Process(2).Parameters = {'srcbuffer','none'};
+
 
 % EF2 is external function for shearwave visualization
 Process(3).classname = 'External';
@@ -1638,41 +1638,29 @@ end
 %            motormove(1,stepMM);
 %    end
 %function movemotor()
-function movemotor(scan)
-
-    %scan = evalin('base','scan');
-    if isempty(scan)
-        scan.scanIdx   = 1;
-        scan.nSteps    = evalin('base','nSteps');
-        scan.stepMM    = evalin('base','stepMM');
-        scan.scanDisMM = evalin('base','scanDisMM');
-        
-        disp('Initialized scan inside movemotor');
+function movemotor()
+    file = evalin('base','file');
+    scan = evalin('base','scan');
+    scanIdx        = scan.scanIdx;
+    nSteps         = scan.nSteps;
+    stepMM         = scan.stepMM;
+    if scanIdx<=nSteps
+            motormove(1,stepMM);
     end
-
-    if scan.scanIdx < scan.nSteps
-        motormove(1, scan.stepMM);
-        scan.scanIdx = scan.scanIdx + 1;
-    end
-
-%    assignin('base','scan',scan);
-%    pause(0.15);
-
-
 % keyboard
-  if scan.scanIdx == scan.nSteps
+    if scan.scanIdx == scan.nSteps
         %% Check if End of Scan; IF so, return to Flash only imaging (should returnt motor also to start positoon)
         nStart  = evalin('base','nStartFlashOnly');%evalin('base','nStartPush');%
         Control = evalin('base','Control');
         if isempty(Control(1).Command), n=1; else n=length(Control)+1; end
         Control(n).Command = 'set&Run';
         Control(n).Parameters = {'Parameters',1,'startEvent',nStart};
-%        evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
+        evalin('base',['Resource.Parameters.startEvent =',num2str(nStart),';']);
         assignin('base','Control',Control);
     end
+
     pause(0.15);
 end
-
 
 function saveIQ(IBuffer, QBuffer)
 
