@@ -559,8 +559,6 @@ end
     Event(n).seqControl = 0;
     n = n+1;
 
-end
-
     if motStep>1 % Collect data on first position without moving motor
         %% Move Motor
         Event(n).info = 'Move Motor';
@@ -571,6 +569,8 @@ end
         Event(n).seqControl = 0;
         n = n+1;
     end
+
+end
 
 %Event(n).info    = 'Save IQ';
 %    Event(n).tx      = 0;
@@ -781,7 +781,7 @@ file.saveFileRoot2= saveFileRoot2;
 file.dircheck     = 0;     % flag to check if directory exists before saving
 % file.frIdx        = frIdx; % Start Index Numbering here for save file--will change during scan
 
-% assignin('base','scan',scan);
+assignin('base','scan',scan);
 
 disp('Scan initialized:');
 disp(scan);
@@ -1671,9 +1671,11 @@ function movemotor()
 %      keyboard
     file = evalin('base','file');
     scan = evalin('base','scan');
-    scanIdx        = scan.scanIdx;
+%    scanIdx        = scan.scanIdx;
+    scanIdx        = scan.scanIdx + 1;
     nSteps         = scan.nSteps;
     stepMM         = scan.stepMM;
+assignin('base','scan',scan); %not sure if i need this
     if scanIdx<=nSteps
             motormove(1,stepMM);
     end
