@@ -1,1 +1,20 @@
 //
+RUNACQ Has reported the following error:
+
+Error using motormove (line 4)
+Motor not connected. Define MOTOR_SERIAL in the base workspace first.
+
+Error in Cap_SWEandMotor>movemotor (line 1678)
+            motormove(1,stepMM);
+
+Error in vsv.seq.function.ExFunctionManager/evaluateFunction
+
+Error in movemotor (line 4)
+    [varargout{:}] = ex.evaluateFunction('movemotor', varargin{:});
+
+Error in VSX (line 3554)
+            runAcq(VSX_Control);
+
+Error in Cap_SWEandMotor (line 792)
+    VSX;
+Cleaning up memory allocated.
