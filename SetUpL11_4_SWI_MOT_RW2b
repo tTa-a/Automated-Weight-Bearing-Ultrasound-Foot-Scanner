@@ -1,39 +1,15 @@
-% Notice:
-%   This file is provided by Verasonics to end users as a programming
-%   example for the Verasonics Vantage Research Ultrasound System.
-%   Verasonics makes no claims as to the functionality or intended
-%   application of this program and the user assumes all responsibility
-%   for its use.
-%
-% File name SetUpL7_4ShearWaveImaging.m:
-% Generate .mat  Sequence Object file for L11-4 Linear flash transmit with Shearwave visualization.
-% An example for Changing startevent on conditional coding
-%
-% All 128 transmit channels are used, with receive on the 64 central elements.
-% Update:
-% Peter K finished the pushtest using Ron's IQ processing function
-% YT, 08/29/2014: Focus adjusment and movie save is added
-% YT, 12/02/2014: SWI on/off is added for customer to have regular imaging
-% YT, 02/10/2015: add dragable ROI ability to move ROI around
-% YT, 02/18/2015: modify the first set of events to regular flash imaging
-% YT, 11/23/2015: make it compatible with 3.0
-% April 2019 VTS-1142 IQBuffer replaced with separate I and Q Buffers
-% YT, 09/20/2019: make one script working for multiple configurations
-% 05/06/2020 - Update to SW 4.3 format for new UIControls and function definitions (VTS 1691). 
-%   More info:(.../Example_Scripts/Vantage_Features/New UI Scheme/SetUpL11_5vFlash_NewUI)
-
 clear all
 
-cd 'C:\Users\Administrator\Documents\Vantage-4.7.6-2206101100_Capstone_2026';
-addpath('C:\CAP26');
+%saveIQFlag   = 1; % Save IQ data for SWI
+% saveFileRoot = '033026_test'; % Not used; defined later RSW
 
-fname        = '2_SWI_Motor_Test';
-savepath     = 'C:\CAP26\data\';
+fname        = 'Test1';
+savepath     = 'c:\CAP26\data\';
 
 % Flags
 % scanActive   = 1;
-useMotorFlag = 1; % Save IQ data for SWI
-saveIQFlag   = 1;
+useMotorFlag = 1;
+saveIQFlag   = 0;
 
 %% System parameters
 filename = ('L11-4vShearWave_RW');
@@ -46,7 +22,7 @@ if useMotorFlag
     disp("Motor connected.");
 end
 
-scanDisMM  = 20; % mm
+scanDisMM  = 10; % mm
 stepMM     = 0.5; % mm
 if useMotorFlag
     nSteps = floor(scanDisMM/stepMM) + 1;
@@ -104,7 +80,7 @@ V64LE = SysConfig.LEsys;
 % Specify Trans structure array.
 Trans.name = 'L11-4v';
 Trans.units = 'mm';
-Trans = computeTrans(Trans);  % L11-4 transducer is 'known' transducer so we can use computeTrans.
+Trans = computeTrans(Trans);  % L7-4 transducer is 'known' transducer so we can use computeTrans.
 Trans.maxHighVoltage = maxVoltage;  % set maximum high voltage limit for pulser supply.
 
 %% Imaging parameters
@@ -532,6 +508,14 @@ for i = 1:SWIFrames
     Event(n).recon = [2,3];
     Event(n).process = 1;
     Event(n).seqControl = 0;
+    n = n+1;
+
+    Event(n).info = 'save IQ data';
+    Event(n).tx = 0;
+    Event(n).rcv = 0;
+    Event(n).recon = 0;
+    Event(n).process = 4;
+    Event(n).seqControl = 8;
     n = n+1;
 
     Event(n).info = 'ext func to process IQ';
@@ -1242,7 +1226,7 @@ function processIQ(IBuffer, QBuffer)
         figure(SWIfigHandle), if ishandle(myHandle), delete(myHandle); end
         maxP = max(Power(:));
         myHandle = imagesc(axisChannel,axisDepth,Power,[0 0.9*maxP]);
-        title('Shear Wave Visualization with L11-4','FontSize',12,'Fontweight','bold');
+        title('Shear Wave Visualization with L7-4','FontSize',14,'Fontweight','bold');
         xlabel('Wavelength','FontSize',12,'Fontweight','bold');
         ylabel('Wavelength','FontSize',12,'Fontweight','bold');
         set(gca,'FontSize',12,'Fontweight','bold');
@@ -1309,8 +1293,7 @@ function processIQ(IBuffer, QBuffer)
             file.dircheck = dircheck;
             assignin('base','file',file);
         end
-        saveFileStr = sprintf('%s_%03d.mat',saveFileRoot, scan.scanIdx);
-        save(saveFileStr, 'IQframes','SW');
+        save([saveFileRoot '_' num2str(scan.scanIdx) '.mat'], 'IQframes','SW');
         frIdx = frIdx + 1;
         assignin('base','frIdx',frIdx);
         %Pdata
